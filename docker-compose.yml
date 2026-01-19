@@ -19,8 +19,7 @@ x-airflow-common:
     AIRFLOW__CORE__MAX_ACTIVE_RUNS_PER_DAG: 1
 
     # Database (stock-predict-db 컨테이너 사용)
-    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://postgres:postgres@stock-predict-db:5432/airflow
-
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://kknaks:1kknaks@stock-predict-db:5432/airflow
     # API
     AIRFLOW__API__AUTH_BACKENDS: 'airflow.api.auth.backend.basic_auth,airflow.api.auth.backend.session'
 
