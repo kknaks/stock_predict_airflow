@@ -26,11 +26,11 @@ default_args = {
 with DAG(
     dag_id='websocket_end',
     default_args=default_args,
-    description='장 마감 시 주문 마감 처리 (CLOSING 명령)',
+    description='장 종료 (STOP 명령)',
     schedule_interval='31 6 * * 1-5',  # 평일 오후 3시 30분 KST (UTC 06:30, UTC+9 기준)
     start_date=airflow_timezone.datetime(2025, 1, 1),
     catchup=False,
-    tags=['websocket', 'kafka', 'closing'],
+    tags=['websocket', 'kafka', 'stop'],
 ) as dag:
 
     start = EmptyOperator(task_id='start')
