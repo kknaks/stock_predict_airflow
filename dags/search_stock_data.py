@@ -23,9 +23,9 @@ from airflow.utils import timezone
 from operators.stock_data_operators import (
     MarketOpenCheckOperator,
     SearchStockDataOperator,
-    GapUpFilterOperator,
     IndexCurrentOperator,
 )
+from operators.strategy_operator import GetStrategyOperator
 from operators.kafka_operator import KafkaPublishOperator
 
 
