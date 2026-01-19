@@ -194,6 +194,7 @@ class GapPredictions(Base, TimestampMixin):
     timestamp = Column(Date, nullable=False)
     stock_code = Column(String(20), nullable=False, index=True)
     stock_name = Column(String(100), nullable=False)
+    exchange = Column(String(20), nullable=True)
     prediction_date = Column(Date, nullable=False, index=True)
     
     # 입력 데이터

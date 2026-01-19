@@ -72,11 +72,28 @@ class KafkaPublishOperator(BaseOperator):
             print("No message to publish")
             return 0
 
+        # 메시지 처리: 문자열인 경우 JSON으로 파싱, 딕셔너리인 경우 그대로 사용
+        message = self.message
+        if isinstance(message, str):
+            try:
+                # JSON 문자열인 경우
+                message = json.loads(message)
+            except json.JSONDecodeError:
+                # Python 딕셔너리 문자열인 경우 (Jinja 템플릿으로 변환된 경우)
+                import ast
+                try:
+                    message = ast.literal_eval(message)
+                except (ValueError, SyntaxError) as e:
+                    raise ValueError(f"Invalid message format: {e}")
+        
+        if not isinstance(message, dict):
+            raise ValueError(f"Message must be dict or JSON string, got {type(message)}")
+
         # 메시지 키 생성
         key = self.message_key or f"msg_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
         print(f"Message key: {key}")
-        print(f"Message: {json.dumps(self.message, ensure_ascii=False, default=str)[:500]}...")
+        print(f"Message: {json.dumps(message, ensure_ascii=False, default=str)[:500]}...")
 
         # 카프카 발행 시도
         try:
@@ -88,7 +105,7 @@ class KafkaPublishOperator(BaseOperator):
             producer.produce(
                 topic=self.kafka_topic,
                 key=key.encode('utf-8'),
-                value=json.dumps(self.message, ensure_ascii=False, default=str).encode('utf-8')
+                value=json.dumps(message, ensure_ascii=False, default=str).encode('utf-8')
             )
             producer.flush()
 
