@@ -25,7 +25,7 @@ from operators.stock_data_operators import (
     SearchStockDataOperator,
     IndexCurrentOperator,
 )
-from operators.strategy_operator import GetStrategyOperator
+from operators.gap_up_filter_operator import GapUpFilterOperator
 from operators.kafka_operator import KafkaPublishOperator
 
 
