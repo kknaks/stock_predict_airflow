@@ -402,7 +402,7 @@ class StockDataWriter:
                 
                 # 업데이트
                 update_query = text("""
-                    UPDATE gap_predictions
+                    UPDATE predictions
                     SET actual_close = :actual_close,
                         actual_high = :actual_high,
                         actual_low = :actual_low,

@@ -610,7 +610,7 @@ class UpdatePredictionResultsOperator(BaseOperator):
             query = text("""
                 SELECT id, stock_code, stock_open, predicted_direction,
                        expected_return, max_return_if_up
-                FROM gap_predictions
+                FROM predictions
                 WHERE prediction_date = :target_date
                   AND (actual_close IS NULL OR actual_return IS NULL)
                 ORDER BY stock_code
@@ -674,7 +674,7 @@ class UpdatePredictionResultsOperator(BaseOperator):
                         SUM(direction_correct) as correct_count,
                         AVG(return_diff) as avg_return_diff,
                         AVG(ABS(return_diff)) as avg_abs_return_diff
-                    FROM gap_predictions
+                    FROM predictions
                     WHERE prediction_date = :target_date
                       AND direction_correct IS NOT NULL
                 """)
