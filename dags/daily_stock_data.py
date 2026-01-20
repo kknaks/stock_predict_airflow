@@ -48,7 +48,7 @@ with DAG(
     dag_id='daily_stock_data',
     default_args=default_args,
     description='일일 주식 데이터 수집 (KOSPI/KOSDAQ) - 동적 배치 처리',
-    schedule_interval='0 8 * * 1-5',  # 평일 오후 5시
+    schedule_interval='0 8 * * 1-5',  # 평일 오후 5시 KST (UTC 08:00, UTC+9 기준)
     start_date=timezone.datetime(2025, 1, 1),
     catchup=False,
     tags=['stock', 'daily', 'data-collection'],

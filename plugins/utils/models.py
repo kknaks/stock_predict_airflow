@@ -186,7 +186,7 @@ class GapPredictions(Base, TimestampMixin):
     
     stock_predict_database/database/stocks.py와 동기화 유지 필요!
     """
-    __tablename__ = 'gap_predictions'
+    __tablename__ = 'predictions'
 
     id = Column(BigInteger, primary_key=True, autoincrement=True)
     
