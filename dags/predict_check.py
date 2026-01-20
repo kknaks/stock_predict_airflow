@@ -55,7 +55,7 @@ with DAG(
     # 예측 결과 업데이트
     update_predictions = UpdatePredictionResultsOperator(
         task_id='update_prediction_results',
-        target_date='{{ ds }}',  # execution_date 사용
+        target_date='{{ next_ds }}',  # execution_date 사용
     )
 
     end = EmptyOperator(task_id='end')
