@@ -39,9 +39,9 @@ class StockStatus(str, enum.Enum):
 
 class StrategyStatus(str, enum.Enum):
     """전략 상태"""
-    ACTIVE = "active"
-    INACTIVE = "inactive"
-    PAUSED = "paused"
+    ACTIVE = "ACTIVE"
+    INACTIVE = "INACTIVE"
+    PAUSED = "PAUSED"
 
 
 class WeightType(str, enum.Enum):

@@ -491,7 +491,7 @@ class StockDataWriter:
                 JOIN stock_accounts a ON us.account_id = a.id
                 JOIN users u ON a.user_uid = u.uid
                 LEFT JOIN strategy_weight sw ON us.weight_type_id = sw.id
-                WHERE us.status = 'active'
+                WHERE us.status = 'ACTIVE'
                   AND us.is_auto = true
                   AND (us.is_deleted = false OR us.is_deleted IS NULL)
                   AND a.account_type = :account_type
@@ -627,7 +627,7 @@ class StockDataWriter:
                 JOIN stock_accounts a ON us.account_id = a.id
                 JOIN users u ON a.user_uid = u.uid
                 LEFT JOIN strategy_weight sw ON us.weight_type_id = sw.id
-                WHERE us.status = 'active'
+                WHERE us.status = 'ACTIVE'
                   AND us.is_auto = true
                   AND (us.is_deleted = false OR us.is_deleted IS NULL)
             """
