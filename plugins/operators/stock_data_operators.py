@@ -217,6 +217,7 @@ class SymbolLoaderOperator(BaseOperator):
 
         else:  # 'active'
             # DB에서 ACTIVE 종목만 조회
+            # Note: status는 Enum(StockStatus)이므로 대문자 'ACTIVE' 사용
             with db_writer.engine.connect() as conn:
                 from sqlalchemy import text
                 query = text("SELECT symbol FROM stock_metadata WHERE status = 'ACTIVE'")

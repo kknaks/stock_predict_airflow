@@ -13,7 +13,9 @@ from sqlalchemy.orm import sessionmaker
 # Airflow용 SQLAlchemy 1.4 호환 모델
 from utils.models import (
     Base, StockPrices, MarketIndices, StockMetadata, GapPredictions,
-    Users, Accounts, UserStrategy, StrategyInfo, StrategyStatus
+    Users, Accounts, UserStrategy, StrategyInfo, StrategyStatus,
+    DailyStrategy, DailyStrategyStock, Order, OrderExecution, HourCandleData,
+    AccountType
 )
 
 
@@ -62,7 +64,7 @@ class StockDataWriter:
         with self.engine.begin() as conn:
             stmt = insert(StockMetadata).values(symbols_data)
             stmt = stmt.on_conflict_do_update(
-                index_elements=['symbol'],
+                index_elements=['symbol'],  # symbol이 PK
                 set_={
                     'name': stmt.excluded.name,
                     'exchange': stmt.excluded.exchange,
@@ -106,7 +108,7 @@ class StockDataWriter:
         INT_MAX = 2147483647
         INT_MIN = -2147483648
         BIGINT_MAX = 9223372036854775807
-        
+
         for col in filtered_df.columns:
             if filtered_df[col].dtype in ['int64', 'float64']:
                 # 극단적으로 큰 값이 있는지 확인
@@ -168,12 +170,24 @@ class StockDataWriter:
 
         Returns:
             저장된 행 수
+
+        Note:
+            - date가 Primary Key (id 컬럼 없음)
         """
         if indices_df.empty:
             return 0
 
+        # DB 테이블에 존재하는 컬럼만 추출
+        db_columns = {c.name for c in MarketIndices.__table__.columns}
+        excluded_from_insert = {'created_at', 'updated_at'}
+        excluded_from_update = {'date', 'created_at', 'updated_at'}
+
+        # DataFrame에서 DB 컬럼만 선택
+        valid_columns = [col for col in indices_df.columns if col in db_columns - excluded_from_insert]
+        filtered_df = indices_df[valid_columns].copy()
+
         # DataFrame을 딕셔너리 리스트로 변환
-        records = indices_df.to_dict('records')
+        records = filtered_df.to_dict('records')
 
         # date를 문자열로 변환
         for record in records:
@@ -183,16 +197,16 @@ class StockDataWriter:
         with self.engine.begin() as conn:
             stmt = insert(MarketIndices).values(records)
 
-            # 모든 컬럼 업데이트
+            # 모든 컬럼 업데이트 (date, created_at 제외)
             update_dict = {
                 col: getattr(stmt.excluded, col)
-                for col in indices_df.columns
-                if col not in ['date', 'created_at']
+                for col in valid_columns
+                if col not in excluded_from_update
             }
             update_dict['updated_at'] = text('CURRENT_TIMESTAMP')
 
             stmt = stmt.on_conflict_do_update(
-                index_elements=['date'],
+                index_elements=['date'],  # date가 PK
                 set_=update_dict
             )
 
@@ -228,7 +242,7 @@ class StockDataWriter:
             종목 수
         """
         with self.engine.connect() as conn:
-            query = text("SELECT COUNT(DISTINCT symbol) FROM stock_metadata WHERE status = 'ACTIVE'")
+            query = text("SELECT COUNT(*) FROM stock_metadata WHERE status = 'ACTIVE'")
             return conn.execute(query).scalar() or 0
 
     def get_date_range(self, symbol: str) -> Optional[tuple]:
@@ -356,50 +370,50 @@ class StockDataWriter:
     ) -> int:
         """
         GapPredictions 테이블의 실제 결과 업데이트
-        
+
         Args:
             predictions: 예측 리스트 (id, stock_code, stock_open, predicted_direction, expected_return, max_return_if_up 포함)
             actual_prices: 실제 가격 딕셔너리 {stock_code: {'close': float, 'high': float, 'low': float}}
-        
+
         Returns:
             업데이트된 행 수
         """
         if not predictions:
             return 0
-        
+
         updated_count = 0
-        
+
         with self.engine.begin() as conn:
             for pred in predictions:
                 stock_code = pred['stock_code']
-                
+
                 if stock_code not in actual_prices:
                     continue
-                
+
                 price_data = actual_prices[stock_code]
                 stock_open = pred['stock_open']
                 actual_close = price_data['close']
                 actual_high = price_data['high']
                 actual_low = price_data['low']
-                
+
                 # 실제 수익률 계산
                 actual_return = ((actual_close - stock_open) / stock_open) * 100
                 actual_max_return = ((actual_high - stock_open) / stock_open) * 100
-                
+
                 # 예측 차이 계산
                 expected_return = pred['expected_return']
                 return_diff = expected_return - actual_return
-                
+
                 max_return_if_up = pred.get('max_return_if_up')
                 max_return_diff = None
                 if max_return_if_up is not None:
                     max_return_diff = max_return_if_up - actual_max_return
-                
+
                 # 예측 방향 정확도 (1: 맞음, 0: 틀림)
                 predicted_direction = pred['predicted_direction']
                 actual_direction = 1 if actual_return > 0 else 0
                 direction_correct = 1 if predicted_direction == actual_direction else 0
-                
+
                 # 업데이트
                 update_query = text("""
                     UPDATE predictions
@@ -414,7 +428,7 @@ class StockDataWriter:
                         updated_at = CURRENT_TIMESTAMP
                     WHERE id = :id
                 """)
-                
+
                 conn.execute(update_query, {
                     "id": pred['id'],
                     "actual_close": actual_close,
@@ -426,52 +440,63 @@ class StockDataWriter:
                     "max_return_diff": round(max_return_diff, 2) if max_return_diff is not None else None,
                     "direction_correct": direction_correct,
                 })
-                
+
                 updated_count += 1
 
         return updated_count
 
-    def get_active_auto_strategies(self, is_mock: bool = True) -> List[Dict]:
+    def get_active_auto_strategies(self, account_type: str = "mock") -> List[Dict]:
         """
-        status=ACTIVE, is_auto=True인 전략 목록 조회 (Mock용)
+        status=ACTIVE, is_auto=True인 전략 목록 조회
+
+        Args:
+            account_type: 계좌 유형 필터 ("mock", "paper", "real")
 
         Returns:
             전략 정보 리스트
             [
                 {
                     "id": 1,
-                    "user_id": 1,
+                    "account_id": 1,
                     "strategy_id": 1,
                     "strategy_name": "Gap Trading",
                     "ls_ratio": 0.5,
                     "tp_ratio": 0.3,
+                    "account_number": "12345678",
                     "nickname": "user1"
                 },
                 ...
             ]
+
+        Note:
+            - UserStrategy가 user_id 대신 account_id를 FK로 사용하도록 변경됨
+            - account_type으로 필터링 (기존 role 대신)
         """
-        role = "MOCK" if is_mock else "USER"
         with self.engine.connect() as conn:
             query = text("""
                 SELECT
                     us.id,
-                    us.user_id,
+                    us.account_id,
                     us.strategy_id,
                     si.name as strategy_name,
                     us.ls_ratio,
                     us.tp_ratio,
                     sw.weight_type as strategy_weight_type,
                     us.investment_weight,
+                    a.account_number,
+                    a.account_name,
                     u.nickname
                 FROM user_strategy us
                 JOIN strategy_info si ON us.strategy_id = si.id
-                JOIN users u ON us.user_id = u.uid
-                JOIN strategy_weight sw ON us.weight_type_id = sw.id
-                WHERE us.status = 'ACTIVE'
+                JOIN stock_accounts a ON us.account_id = a.id
+                JOIN users u ON a.user_uid = u.uid
+                LEFT JOIN strategy_weight sw ON us.weight_type_id = sw.id
+                WHERE us.status = 'active'
                   AND us.is_auto = true
-                  AND u.role = :role
+                  AND (us.is_deleted = false OR us.is_deleted IS NULL)
+                  AND a.account_type = :account_type
             """)
-            result = conn.execute(query, {"role": role})
+            result = conn.execute(query, {"account_type": account_type})
             return [dict(row._mapping) for row in result]
 
     def get_user_account_credentials(self, user_ids: List[int] = None) -> List[Dict]:
@@ -489,6 +514,8 @@ class StockDataWriter:
                     "nickname": "user1",
                     "account_id": 1,
                     "account_number": "12345678",
+                    "account_name": "test",
+                    "account_type": "real",
                     "account_balance": 1000000.00,
                     "app_key": "xxx",
                     "app_secret": "yyy",
@@ -506,6 +533,8 @@ class StockDataWriter:
                         u.nickname,
                         a.id as account_id,
                         a.account_number,
+                        a.account_name,
+                        a.account_type,
                         a.account_balance,
                         a.app_key,
                         a.app_secret,
@@ -524,6 +553,8 @@ class StockDataWriter:
                         u.nickname,
                         a.id as account_id,
                         a.account_number,
+                        a.account_name,
+                        a.account_type,
                         a.account_balance,
                         a.app_key,
                         a.app_secret,
@@ -537,9 +568,12 @@ class StockDataWriter:
 
             return [dict(row._mapping) for row in result]
 
-    def get_user_strategies_with_accounts(self) -> List[Dict]:
+    def get_user_strategies_with_accounts(self, account_type: str = None) -> List[Dict]:
         """
         ACTIVE/is_auto=True 전략과 해당 유저의 계좌 정보를 함께 조회 (실거래용)
+
+        Args:
+            account_type: 계좌 유형 필터 (None이면 전체, "mock", "paper", "real")
 
         Returns:
             전략 + 계좌 정보 리스트
@@ -548,46 +582,194 @@ class StockDataWriter:
                     "strategy_id": 1,
                     "strategy_name": "Gap Trading",
                     "user_strategy_id": 1,
+                    "account_id": 1,
                     "user_id": 1,
                     "nickname": "user1",
                     "ls_ratio": 0.5,
                     "tp_ratio": 0.3,
-                    "account_id": 1,
                     "account_number": "12345678",
+                    "account_name": "test",
+                    "account_type": "real",
                     "account_balance": 1000000.00,
                     "app_key": "xxx",
                     "app_secret": "yyy"
                 },
                 ...
             ]
+
+        Note:
+            - UserStrategy가 user_id 대신 account_id를 FK로 사용
+            - user_id 조회는 account → user 관계를 통해
         """
         with self.engine.connect() as conn:
-            query = text("""
+            base_query = """
                 SELECT
                     si.id as strategy_id,
                     si.name as strategy_name,
                     us.id as user_strategy_id,
+                    us.account_id,
                     a.hts_id,
-                    us.user_id,
+                    u.uid as user_id,
                     u.nickname,
                     u.role,
                     us.ls_ratio,
                     us.tp_ratio,
                     sw.weight_type as strategy_weight_type,
                     us.investment_weight,
-                    a.id as account_id,
                     a.account_number,
+                    a.account_name,
+                    a.account_type,
                     a.account_balance,
                     a.app_key,
                     a.app_secret
                 FROM user_strategy us
                 JOIN strategy_info si ON us.strategy_id = si.id
-                JOIN users u ON us.user_id = u.uid
-                JOIN strategy_weight sw ON us.weight_type_id = sw.id
-                JOIN stock_accounts a ON u.uid = a.user_uid
-                WHERE us.status = 'ACTIVE'
+                JOIN stock_accounts a ON us.account_id = a.id
+                JOIN users u ON a.user_uid = u.uid
+                LEFT JOIN strategy_weight sw ON us.weight_type_id = sw.id
+                WHERE us.status = 'active'
                   AND us.is_auto = true
-                ORDER BY us.id, a.id
-            """)
-            result = conn.execute(query)
+                  AND (us.is_deleted = false OR us.is_deleted IS NULL)
+            """
+
+            if account_type:
+                query = text(base_query + " AND a.account_type = :account_type ORDER BY us.id, a.id")
+                result = conn.execute(query, {"account_type": account_type})
+            else:
+                query = text(base_query + " ORDER BY us.id, a.id")
+                result = conn.execute(query)
+
             return [dict(row._mapping) for row in result]
+
+    # =====================================================
+    # 새로운 테이블용 메서드들
+    # =====================================================
+
+    def upsert_daily_strategy(self, daily_strategy_data: Dict) -> int:
+        """
+        DailyStrategy 테이블 INSERT/UPDATE
+
+        Args:
+            daily_strategy_data: 일별 전략 데이터
+
+        Returns:
+            생성/수정된 id
+        """
+        with self.engine.begin() as conn:
+            stmt = insert(DailyStrategy).values(daily_strategy_data)
+            stmt = stmt.on_conflict_do_update(
+                index_elements=['id'],
+                set_={
+                    'buy_amount': stmt.excluded.buy_amount,
+                    'sell_amount': stmt.excluded.sell_amount,
+                    'total_profit_rate': stmt.excluded.total_profit_rate,
+                    'total_profit_amount': stmt.excluded.total_profit_amount,
+                    'updated_at': text('CURRENT_TIMESTAMP'),
+                }
+            )
+            result = conn.execute(stmt)
+            return result.rowcount
+
+    def upsert_daily_strategy_stock(self, stock_data: List[Dict]) -> int:
+        """
+        DailyStrategyStock 테이블 UPSERT
+
+        Args:
+            stock_data: 일별 전략 종목 데이터 리스트
+
+        Returns:
+            저장된 행 수
+        """
+        if not stock_data:
+            return 0
+
+        with self.engine.begin() as conn:
+            stmt = insert(DailyStrategyStock).values(stock_data)
+            stmt = stmt.on_conflict_do_update(
+                index_elements=['id'],
+                set_={
+                    'target_price': stmt.excluded.target_price,
+                    'target_quantity': stmt.excluded.target_quantity,
+                    'target_sell_price': stmt.excluded.target_sell_price,
+                    'stop_loss_price': stmt.excluded.stop_loss_price,
+                    'buy_price': stmt.excluded.buy_price,
+                    'buy_quantity': stmt.excluded.buy_quantity,
+                    'sell_price': stmt.excluded.sell_price,
+                    'sell_quantity': stmt.excluded.sell_quantity,
+                    'profit_rate': stmt.excluded.profit_rate,
+                    'updated_at': text('CURRENT_TIMESTAMP'),
+                }
+            )
+            result = conn.execute(stmt)
+            return result.rowcount
+
+    def upsert_order(self, order_data: Dict) -> int:
+        """
+        Order 테이블 UPSERT
+
+        Args:
+            order_data: 주문 데이터
+
+        Returns:
+            저장된 행 수
+        """
+        with self.engine.begin() as conn:
+            stmt = insert(Order).values(order_data)
+            stmt = stmt.on_conflict_do_update(
+                index_elements=['order_no'],
+                set_={
+                    'status': stmt.excluded.status,
+                    'total_executed_quantity': stmt.excluded.total_executed_quantity,
+                    'total_executed_price': stmt.excluded.total_executed_price,
+                    'remaining_quantity': stmt.excluded.remaining_quantity,
+                    'is_fully_executed': stmt.excluded.is_fully_executed,
+                    'updated_at': text('CURRENT_TIMESTAMP'),
+                }
+            )
+            result = conn.execute(stmt)
+            return result.rowcount
+
+    def insert_order_execution(self, execution_data: Dict) -> int:
+        """
+        OrderExecution 테이블 INSERT
+
+        Args:
+            execution_data: 체결 데이터
+
+        Returns:
+            생성된 id
+        """
+        with self.engine.begin() as conn:
+            stmt = insert(OrderExecution).values(execution_data)
+            result = conn.execute(stmt)
+            return result.rowcount
+
+    def upsert_hour_candle(self, candle_data: List[Dict]) -> int:
+        """
+        HourCandleData 테이블 UPSERT
+
+        Args:
+            candle_data: 1시간봉 캔들 데이터 리스트
+
+        Returns:
+            저장된 행 수
+        """
+        if not candle_data:
+            return 0
+
+        with self.engine.begin() as conn:
+            stmt = insert(HourCandleData).values(candle_data)
+            stmt = stmt.on_conflict_do_update(
+                constraint='uq_hour_candle_stock_date_hour',
+                set_={
+                    'open': stmt.excluded.open,
+                    'high': stmt.excluded.high,
+                    'low': stmt.excluded.low,
+                    'close': stmt.excluded.close,
+                    'volume': stmt.excluded.volume,
+                    'trade_count': stmt.excluded.trade_count,
+                    'updated_at': text('CURRENT_TIMESTAMP'),
+                }
+            )
+            result = conn.execute(stmt)
+            return result.rowcount
