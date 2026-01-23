@@ -235,9 +235,9 @@ class PublishAccountStrategyOperator(BaseOperator):
         # 기본 앱키 가져오기 (Airflow Connection에서)
         app_key, app_secret = get_kis_credentials(self.kis_conn_id)
 
-        # account_type별로 계좌 분리 (mock/paper vs real)
-        mock_accounts = [acc for acc in accounts if acc.get('account_type') in ('mock', 'paper')]
-        real_accounts = [acc for acc in accounts if acc.get('account_type') == 'real']
+        # account_type별로 계좌 분리 (mock/paper vs real) - 대소문자 무시
+        mock_accounts = [acc for acc in accounts if acc.get('account_type', '').lower() in ('mock', 'paper')]
+        real_accounts = [acc for acc in accounts if acc.get('account_type', '').lower() == 'real']
 
         # 계좌 ID 기준으로 전략 분리
         mock_strategies = [s for s in strategies if s.get('account_id') in {acc.get('account_id') for acc in mock_accounts}]
