@@ -235,32 +235,33 @@ class PublishAccountStrategyOperator(BaseOperator):
         # 기본 앱키 가져오기 (Airflow Connection에서)
         app_key, app_secret = get_kis_credentials(self.kis_conn_id)
 
-        # Role별로 사용자 분리
-        mock_accounts = [acc for acc in accounts if acc.get('role', 'USER') in ('MOCK', 'mock')]
-        real_accounts = [acc for acc in accounts if acc.get('role', 'USER') not in ('MOCK', 'mock')]
+        # account_type별로 계좌 분리 (mock/paper vs real)
+        mock_accounts = [acc for acc in accounts if acc.get('account_type') in ('mock', 'paper')]
+        real_accounts = [acc for acc in accounts if acc.get('account_type') == 'real']
 
-        mock_strategies = [s for s in strategies if s.get('user_id') in {acc.get('user_id') for acc in mock_accounts}]
-        real_strategies = [s for s in strategies if s.get('user_id') in {acc.get('user_id') for acc in real_accounts}]
+        # 계좌 ID 기준으로 전략 분리
+        mock_strategies = [s for s in strategies if s.get('account_id') in {acc.get('account_id') for acc in mock_accounts}]
+        real_strategies = [s for s in strategies if s.get('account_id') in {acc.get('account_id') for acc in real_accounts}]
 
         published_count = 0
 
-        # MOCK role 메시지 발행
+        # MOCK/PAPER 계좌 메시지 발행
         if mock_accounts and mock_strategies:
-            print(f"\n[MOCK Users] {len(mock_accounts)} accounts, {len(mock_strategies)} strategies")
+            print(f"\n[MOCK/PAPER Accounts] {len(mock_accounts)} accounts, {len(mock_strategies)} strategies")
             mock_message = self._build_message(timestamp, app_key, mock_strategies, mock_accounts, is_mock=True)
             message_key = f"account_strategy_mock_{timestamp}"
             published_count += self._publish_to_kafka(context, mock_message, message_key)
         else:
-            print("\n[MOCK Users] No accounts or strategies found")
+            print("\n[MOCK/PAPER Accounts] No accounts or strategies found")
 
-        # REAL role 메시지 발행
+        # REAL 계좌 메시지 발행
         if real_accounts and real_strategies:
-            print(f"\n[REAL Users] {len(real_accounts)} accounts, {len(real_strategies)} strategies")
+            print(f"\n[REAL Accounts] {len(real_accounts)} accounts, {len(real_strategies)} strategies")
             real_message = self._build_message(timestamp, app_key, real_strategies, real_accounts, is_mock=False)
             message_key = f"account_strategy_real_{timestamp}"
             published_count += self._publish_to_kafka(context, real_message, message_key)
         else:
-            print("\n[REAL Users] No accounts or strategies found")
+            print("\n[REAL Accounts] No accounts or strategies found")
 
         return published_count
 
@@ -322,6 +323,7 @@ class PublishAccountStrategyOperator(BaseOperator):
             # 계좌 정보 구성
             account_data = {
                 "account_id": acc.get('account_id'),
+                "account_type": acc.get('account_type'),
                 "hts_id": acc.get('hts_id'),
                 "account_no": acc.get('account_number'),
                 "account_product_code": "01",

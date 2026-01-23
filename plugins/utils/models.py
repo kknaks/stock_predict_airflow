@@ -281,6 +281,8 @@ class Accounts(Base, TimestampMixin):
     account_number = Column(String(50), nullable=False, unique=True)
     account_balance = Column(Numeric(20, 2), nullable=False, default=0)
 
+    is_deleted = Column(Boolean, nullable=False, default=False)
+
     # 한국투자증권 API 키
     app_key = Column(String(100), nullable=False)
     app_secret = Column(String(200), nullable=False)
@@ -306,7 +308,7 @@ class StrategyInfo(Base, TimestampMixin):
 
     # 관계
     user_strategies = relationship("UserStrategy", back_populates="strategy_info")
-    gap_predictions = relationship("GapPredictions", back_populates="strategy_info", cascade="all, delete-orphan")
+    gap_predictions = relationship("GapPredictions", back_populates="strategy_info")
 
 
 class StrategyWeightType(Base, TimestampMixin):
@@ -418,9 +420,9 @@ class UserStrategy(Base, TimestampMixin):
     is_deleted = Column(Boolean, nullable=True, default=False)
 
     # 관계
-    strategy_info = relationship("StrategyInfo", back_populates="user_strategies")
+    strategy_info = relationship("StrategyInfo", back_populates="user_strategies", uselist=False)
     account = relationship("Accounts", back_populates="user_strategies")
-    strategy_weight_type = relationship("StrategyWeightType", back_populates="user_strategies")
+    strategy_weight_type = relationship("StrategyWeightType", back_populates="user_strategies", uselist=False)
     daily_strategies = relationship("DailyStrategy", back_populates="user_strategy", cascade="all, delete-orphan")
 
 

@@ -95,8 +95,9 @@ class UserStrategyOperator(BaseOperator):
                 account_data = {
                     'user_id': s['user_id'],
                     'nickname': s['nickname'],
-                    'role': role,  # role 정보 추가
+                    'role': role,  
                     'hts_id': s['hts_id'],
+                    'account_type': s['account_type'],
                     'account_id': s['account_id'],
                     'account_number': s['account_number'],
                     'account_balance': float(s['account_balance']) if s.get('account_balance') else 0.0,
