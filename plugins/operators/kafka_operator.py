@@ -235,9 +235,10 @@ class PublishAccountStrategyOperator(BaseOperator):
         # 기본 앱키 가져오기 (Airflow Connection에서)
         app_key, app_secret = get_kis_credentials(self.kis_conn_id)
 
-        # account_type별로 계좌 분리 (mock/paper vs real) - 대소문자 무시
-        mock_accounts = [acc for acc in accounts if acc.get('account_type', '').lower() in ('mock', 'paper')]
-        real_accounts = [acc for acc in accounts if acc.get('account_type', '').lower() == 'real']
+        # account_type별로 계좌 분리 - 대소문자 무시
+        # MOCK만 mock 그룹, PAPER와 REAL은 real 그룹 (PAPER는 실제 API 사용)
+        mock_accounts = [acc for acc in accounts if acc.get('account_type', '').lower() == 'mock']
+        real_accounts = [acc for acc in accounts if acc.get('account_type', '').lower() in ('real', 'paper')]
 
         # 계좌 ID 기준으로 전략 분리
         mock_strategies = [s for s in strategies if s.get('account_id') in {acc.get('account_id') for acc in mock_accounts}]
@@ -279,31 +280,31 @@ class PublishAccountStrategyOperator(BaseOperator):
             print("Warning: No accounts provided")
             accounts = []
 
-        # 유저별로 전략 그룹화
-        strategies_by_user = {}
+        # 계좌별로 전략 그룹화 (account_id 기준)
+        strategies_by_account = {}
         for s in strategies:
-            user_id = s.get('user_id')
-            if user_id not in strategies_by_user:
-                strategies_by_user[user_id] = []
+            account_id = s.get('account_id')
+            if account_id not in strategies_by_account:
+                strategies_by_account[account_id] = []
             # investment_weight(비중) * account_balance = 실제 투자 금액
             investment_weight_raw = s.get('investment_weight')
             account_balance_raw = s.get('account_balance')
-            
+
             # None 체크 및 기본값 처리 (investment_weight 기본값: 0.9)
             if investment_weight_raw is None:
                 investment_weight = 0.9  # DB 기본값과 동일
             else:
                 investment_weight = float(investment_weight_raw)
-            
+
             account_balance = float(account_balance_raw or 0.0)
             total_investment = investment_weight * account_balance
-            
+
             # 디버깅 로그
             if total_investment == 0:
                 print(f"Warning: total_investment is 0 for strategy {s.get('user_strategy_id')}: "
                       f"investment_weight={investment_weight}, account_balance={account_balance}")
-            
-            strategies_by_user[user_id].append({
+
+            strategies_by_account[account_id].append({
                 "user_strategy_id": s.get('user_strategy_id') or s.get('id'),
                 "strategy_id": s.get('strategy_id'),
                 "strategy_name": s.get('strategy_name'),
@@ -346,11 +347,12 @@ class PublishAccountStrategyOperator(BaseOperator):
                     "expires_in": acc.get('expires_in', 0),
                 })
             
+            account_id = acc.get('account_id')
             users.append({
                 "user_id": user_id,
                 "nickname": acc.get('nickname'),
                 "account": account_data,
-                "strategies": strategies_by_user.get(user_id, [])
+                "strategies": strategies_by_account.get(account_id, [])
             })
 
         # env_dv 결정
