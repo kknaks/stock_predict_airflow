@@ -105,10 +105,9 @@ class UserStrategyOperator(BaseOperator):
                     'app_secret': s['app_secret'],
                 }
 
-                # role에 따라 토큰 발급 (MOCK role이 아닌 경우에만)
-                # is_mock 파라미터는 하위 호환성을 위해 유지하되, role 우선
-                is_mock_role = (role == 'MOCK' or role == 'mock')
-                should_issue_token = not is_mock_role and not self.is_mock
+                # account_type에 따라 토큰 발급 (PAPER, REAL만 토큰 필요)
+                account_type = s.get('account_type', '').upper()
+                should_issue_token = account_type in ('PAPER', 'REAL') and not self.is_mock
                 
                 if should_issue_token:
                     kis_client = KISAPIClient(s['app_key'], s['app_secret'])
@@ -118,7 +117,7 @@ class UserStrategyOperator(BaseOperator):
                         'ws_token': ws_token,
                         'access_token': access_token,
                     })
-                    print(f"      -> Token issued for {s['nickname']} (role={role})")
+                    print(f"      -> Token issued for {s['nickname']} (account_type={account_type})")
 
                 user_accounts.append(account_data)
 
