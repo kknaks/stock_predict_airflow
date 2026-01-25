@@ -621,7 +621,9 @@ class StockDataWriter:
                     a.account_type,
                     a.account_balance,
                     a.app_key,
-                    a.app_secret
+                    a.app_secret,
+                    a.kis_access_token,
+                    a.kis_token_expired_at
                 FROM user_strategy us
                 JOIN strategy_info si ON us.strategy_id = si.id
                 JOIN stock_accounts a ON us.account_id = a.id
@@ -773,3 +775,35 @@ class StockDataWriter:
             )
             result = conn.execute(stmt)
             return result.rowcount
+
+    def update_account_token(
+        self,
+        account_id: int,
+        access_token: str,
+        expired_at: 'datetime'
+    ) -> bool:
+        """
+        계좌의 KIS 토큰 정보 업데이트
+
+        Args:
+            account_id: 계좌 ID
+            access_token: 발급받은 access_token
+            expired_at: 토큰 만료 시간 (datetime)
+
+        Returns:
+            업데이트 성공 여부
+        """
+        with self.engine.begin() as conn:
+            query = text("""
+                UPDATE stock_accounts
+                SET kis_access_token = :access_token,
+                    kis_token_expired_at = :expired_at,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = :account_id
+            """)
+            result = conn.execute(query, {
+                "account_id": account_id,
+                "access_token": access_token,
+                "expired_at": expired_at
+            })
+            return result.rowcount > 0

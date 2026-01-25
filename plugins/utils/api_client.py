@@ -405,15 +405,31 @@ class KISAPIClient:
     
     def get_websocket_user_token(self):
         """
-        WebSocket 접속키 발급 (Airflow Variable로 Task 간 공유)
+        WebSocket 접속키 발급 (캐싱 없이 매번 새로 발급)
 
         WebSocket 접속키는 별도로 발급받아야 하며, access_token과는 다릅니다.
-        토큰이 없거나 만료됐으면 새로 발급받고, 아니면 캐싱된 토큰 반환
 
         Returns:
-            WebSocket 접속키 (approval_key)
+            (expires_in, ws_token, access_token) 튜플
         """
+        # access_token 먼저 발급
+        expires_in, access_token = self.get_access_user_token(self.app_key, self.app_secret)
 
+        # WebSocket 토큰 발급
+        ws_expires_in, ws_token = self.get_websocket_token_with_access_token(access_token)
+
+        return expires_in, ws_token, access_token
+
+    def get_websocket_token_with_access_token(self, access_token: str):
+        """
+        이미 발급된 access_token을 사용하여 WebSocket 접속키만 발급
+
+        Args:
+            access_token: 이미 발급된 access_token
+
+        Returns:
+            (expires_in, ws_token) 튜플
+        """
         url = f"{self.base_url}{self.WS_TOKEN_URL}"
 
         headers = {
@@ -422,14 +438,11 @@ class KISAPIClient:
             "charset": "UTF-8"
         }
 
-        # access_token도 함께 전송 (선택사항이지만 권장)
-        expires_in, access_token = self.get_access_user_token(self.app_key, self.app_secret)
-        
         data = {
             "grant_type": "client_credentials",
             "appkey": self.app_key,
             "secretkey": self.app_secret,
-            "token": access_token,  # access_token 포함
+            "token": access_token,
         }
 
         try:
@@ -437,10 +450,10 @@ class KISAPIClient:
 
             if response.status_code == 200:
                 result = response.json()
-                
+
                 # 응답 형식 확인 (approval_key 또는 다른 필드명일 수 있음)
                 ws_token = result.get("approval_key") or result.get("access_token") or result.get("token")
-                
+
                 if not ws_token:
                     logger.error("웹소켓 토큰 응답 형식 오류: %s", result)
                     raise Exception("웹소켓 토큰 응답에 approval_key가 없습니다")
@@ -448,8 +461,8 @@ class KISAPIClient:
                 # 토큰 만료 시간 설정 (보통 24시간이지만 1시간 전에 갱신)
                 expires_in = result.get("expires_in", 86400)  # 기본 24시간
 
-                logger.info("✓ 웹소켓 접속키 발급 성공 (만료: %s)", self._ws_token_expires_at)
-                return expires_in, ws_token, access_token
+                logger.info("✓ 웹소켓 접속키 발급 성공")
+                return expires_in, ws_token
             else:
                 logger.error("웹소켓 토큰 발급 실패: %s - %s", response.status_code, response.text)
                 raise Exception(f"웹소켓 토큰 발급 실패: {response.status_code}")
