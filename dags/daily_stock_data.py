@@ -48,7 +48,7 @@ with DAG(
     dag_id='daily_stock_data',
     default_args=default_args,
     description='일일 주식 데이터 수집 (KOSPI/KOSDAQ) - 동적 배치 처리',
-    schedule_interval='0 8 * * 1-5',  # 평일 오후 5시 KST (UTC 08:00, UTC+9 기준)
+    schedule_interval='31 6 * * 1-5',  # 평일 오후 5시 KST (UTC 08:00, UTC+9 기준)
     start_date=timezone.datetime(2025, 1, 1),
     catchup=False,
     tags=['stock', 'daily', 'data-collection'],
@@ -76,8 +76,8 @@ with DAG(
     # 2. 시장 지수 수집 (fetch → calc gaps → save)
     process_market = MarketDataOperator(
         task_id='process_market_indices',
-        data_start_date='{{ ds }}',
-        data_end_date='{{ ds }}'
+        data_start_date='{{ data_interval_end | ds }}',
+        data_end_date='{{ data_interval_end | ds }}'
     )
 
     # 3. 배치 인덱스 계산 (종목 수 기반)
@@ -89,8 +89,8 @@ with DAG(
     # 4. 종목 데이터 배치 처리 (Dynamic Task Mapping)
     process_stocks = StockDataOperator.partial(
         task_id='process_stock_batch',
-        data_start_date='{{ ds }}',
-        data_end_date='{{ ds }}',
+        data_start_date='{{ data_interval_end | ds }}',
+        data_end_date='{{ data_interval_end | ds }}',
         include_historical=True,
         historical_days=60,
         symbols_per_batch=SYMBOLS_PER_BATCH,

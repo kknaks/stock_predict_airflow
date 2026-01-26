@@ -34,7 +34,7 @@ with DAG(
     dag_id='predict_check',
     default_args=default_args,
     description='예측 결과 업데이트 - daily_stock_data 완료 후 실행',
-    schedule_interval='0 8 * * 1-5',  # 평일 오후 7시 (daily_stock_data 이후)
+    schedule_interval='31 6 * * 1-5',  # 평일 오후 7시 (daily_stock_data 이후)
     start_date=timezone.datetime(2025, 1, 1),
     catchup=False,
     tags=['stock', 'daily', 'prediction', 'evaluation'],
@@ -55,7 +55,7 @@ with DAG(
     # 예측 결과 업데이트
     update_predictions = UpdatePredictionResultsOperator(
         task_id='update_prediction_results',
-        target_date='{{ next_ds }}',  # execution_date 사용
+        target_date='{{ data_interval_end | ds }}',
     )
 
     end = EmptyOperator(task_id='end')
