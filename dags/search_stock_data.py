@@ -20,9 +20,9 @@ from airflow.operators.empty import EmptyOperator
 from airflow.operators.python import PythonOperator
 from airflow.utils import timezone
 
-from operators.stock_data_operators import (
+from operators.stock_data_operators import SearchStockDataOperator
+from operators.market_data_operator import (
     MarketOpenCheckOperator,
-    SearchStockDataOperator,
     IndexCurrentOperator,
 )
 from operators.gap_up_filter_operator import GapUpFilterOperator
@@ -128,10 +128,10 @@ with DAG(
         print(f"✓ 갭상승 종목: {len(gap_up_stocks)}개")
         print(f"✓ 시장 지수: {len(market_indices)}개")
 
-        # 시장 지수 시가 추출
-        kospi_open = market_indices.get('kospi', {}).get('open_value', 0)
-        kosdaq_open = market_indices.get('kosdaq', {}).get('open_value', 0)
-        kospi200_open = market_indices.get('kospi200', {}).get('open_value', 0)
+        # 시장 지수 현재가 추출
+        kospi_open = market_indices.get('kospi', {}).get('current_value', 0)
+        kosdaq_open = market_indices.get('kosdaq', {}).get('current_value', 0)
+        kospi200_open = market_indices.get('kospi200', {}).get('current_value', 0)
 
         # 타임스탬프 (KST)
         kst = tz(timedelta(hours=9))

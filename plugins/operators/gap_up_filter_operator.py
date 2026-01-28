@@ -5,30 +5,16 @@ Gap Up Filter Operator
 """
 
 from airflow.models import BaseOperator
-from airflow.hooks.base import BaseHook
 from airflow.utils.decorators import apply_defaults
 
 from utils.rate_limiter import RateLimiter
 from utils.api_client import KISAPIClient
 from utils.db_writer import StockDataWriter
-
-
-# RateLimiter 설정
-MAX_PARALLEL_BATCHES = 4
-RATE_LIMIT_PER_BATCH = 20 // MAX_PARALLEL_BATCHES  # 5건/초
-
-
-def get_db_url(conn_id: str = 'stock_db') -> str:
-    """Airflow Connection에서 DB URL 가져오기"""
-    conn = BaseHook.get_connection(conn_id)
-    return f"postgresql+psycopg2://{conn.login}:{conn.password}@{conn.host}:{conn.port}/{conn.schema}"
-
-
-def get_kis_credentials(conn_id: str = 'kis_api') -> tuple:
-    """Airflow Connection에서 한투 API 자격증명 가져오기"""
-    conn = BaseHook.get_connection(conn_id)
-    extra = conn.extra_dejson
-    return extra.get('app_key'), extra.get('app_secret')
+from utils.common import (
+    get_db_url,
+    get_kis_credentials,
+    RATE_LIMIT_PER_BATCH,
+)
 
 
 class GapUpFilterOperator(BaseOperator):
@@ -42,14 +28,19 @@ class GapUpFilterOperator(BaseOperator):
         kis_conn_id: Airflow KIS API connection ID (기본값: kis_api)
         xcom_keys: 입력 XCom 키 리스트 (예상상승종목 리스트들)
         xcom_task_ids: XCom을 가져올 task_id 리스트 (xcom_keys와 매핑)
+        market_code: 시장 구분 코드
+            - "J": KRX (정규장, 09:00~)
+            - "NX": NXT (08:00~)
+            - "UN": 통합 (NXT + KRX)
 
     Note:
-        - 장 시작 직후 (09:00~09:10) 에 실행하는 것이 효과적입니다.
+        - KRX: 장 시작 직후 (09:00~09:10) 에 실행
+        - NXT: 08:00~ 에 실행
         - 시가와 전일종가를 비교하여 갭상승 여부 판단
         - 여러 소스(KOSPI, KOSDAQ)에서 데이터를 병합하여 처리
     """
 
-    template_fields = ('gap_threshold',)
+    template_fields = ('gap_threshold', 'market_code')
 
     @apply_defaults
     def __init__(
@@ -58,19 +49,22 @@ class GapUpFilterOperator(BaseOperator):
         kis_conn_id='kis_api',
         xcom_keys=None,  # 여러 XCom 키 지원 (리스트)
         xcom_task_ids=None,  # 해당 task_id 리스트
+        market_code='J',  # 시장 구분 (J: KRX, NX: NXT, UN: 통합)
         *args,
         **kwargs
     ):
         super().__init__(*args, **kwargs)
         self.gap_threshold = gap_threshold
         self.kis_conn_id = kis_conn_id
+        self.market_code = market_code
         # 기본값: 단일 키 (하위 호환성)
         self.xcom_keys = xcom_keys or ['expected_상승_ranking']
         self.xcom_task_ids = xcom_task_ids
 
     def execute(self, context):
+        market_name = {"J": "KRX", "NX": "NXT", "UN": "통합"}.get(self.market_code, self.market_code)
         print("=" * 80)
-        print(f"갭상승 종목 필터링 (기준: {self.gap_threshold}% 이상)")
+        print(f"갭상승 종목 필터링 (기준: {self.gap_threshold}% 이상, 시장: {market_name})")
         print("=" * 80)
 
         # XCom에서 예상체결 상승 종목 가져오기 (여러 소스 병합)
@@ -116,7 +110,7 @@ class GapUpFilterOperator(BaseOperator):
         gap_up_stocks = []
         symbols = [item['symbol'] for item in expected_ranking]
 
-        current_prices = kis_client.get_current_price_batch(symbols)
+        current_prices = kis_client.get_current_price_batch(symbols, market_code=self.market_code)
 
         # DB에서 전일 종가 일괄 조회
         db_url = get_db_url()

@@ -17,12 +17,7 @@ from airflow.models import BaseOperator
 from airflow.hooks.base import BaseHook
 from airflow.utils.decorators import apply_defaults
 
-
-def get_kis_credentials(conn_id: str = 'kis_api') -> tuple:
-    """Airflow Connection에서 한투 API 자격증명 가져오기"""
-    conn = BaseHook.get_connection(conn_id)
-    extra = conn.extra_dejson
-    return extra.get('app_key'), extra.get('app_secret')
+from utils.common import get_kis_credentials
 
 
 class KafkaPublishOperator(BaseOperator):

@@ -15,9 +15,9 @@ import math
 
 from plugins.operators.stock_data_operators import (
     SymbolLoaderOperator,
-    MarketDataOperator,
     StockDataOperator
 )
+from plugins.operators.market_data_operator import MarketDataOperator
 
 
 # 배치 설정

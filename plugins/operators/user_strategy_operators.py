@@ -10,18 +10,11 @@ Airflow Connections 사용:
 from datetime import datetime, timedelta
 
 from airflow.models import BaseOperator
-from airflow.hooks.base import BaseHook
 from airflow.utils.decorators import apply_defaults
 
 from utils.db_writer import StockDataWriter
 from utils.api_client import KISAPIClient
-
-def get_db_url(conn_id: str = 'stock_db') -> str:
-    """
-    Airflow Connection에서 DB URL 가져오기
-    """
-    conn = BaseHook.get_connection(conn_id)
-    return f"postgresql+psycopg2://{conn.login}:{conn.password}@{conn.host}:{conn.port}/{conn.schema}"
+from utils.common import get_db_url
 
 
 class UserStrategyOperator(BaseOperator):

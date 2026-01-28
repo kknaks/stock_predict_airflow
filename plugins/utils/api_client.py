@@ -188,6 +188,7 @@ class KISAPIClient:
     INDEX_PRICE_URL = "/uapi/domestic-stock/v1/quotations/inquire-index-price"
     EXP_UPDOWN_URL = "/uapi/domestic-stock/v1/ranking/exp-trans-updown"
     HOLIDAY_URL = "/uapi/domestic-stock/v1/quotations/chk-holiday"
+    STOCK_INFO_URL = "/uapi/domestic-stock/v1/quotations/search-stock-info"
 
     def __init__(
         self,
@@ -821,12 +822,20 @@ class KISAPIClient:
             logger.error("요청 실패: %s", str(e))
             return []
 
-    def get_current_price(self, symbol: str) -> Optional[Dict]:
+    def get_current_price(
+        self,
+        symbol: str,
+        market_code: str = "J"
+    ) -> Optional[Dict]:
         """
         주식 현재가 시세 조회 (단일 종목)
 
         Args:
             symbol: 종목 코드 (6자리)
+            market_code: 시장 구분 코드
+                - "J": KRX (정규장, 09:00~15:30)
+                - "NX": NXT (08:00~08:30, 09:00~15:30)
+                - "UN": 통합 (NXT + KRX 모두)
 
         Returns:
             현재가 정보 딕셔너리
@@ -848,7 +857,7 @@ class KISAPIClient:
         tr_id = "FHKST01010100"
 
         params = {
-            "FID_COND_MRKT_DIV_CODE": "J",  # KRX
+            "FID_COND_MRKT_DIV_CODE": market_code,
             "FID_INPUT_ISCD": symbol,
         }
 
@@ -899,12 +908,20 @@ class KISAPIClient:
             logger.error("요청 실패 [%s]: %s", symbol, str(e))
             return None
 
-    def get_current_price_batch(self, symbols: List[str]) -> List[Dict]:
+    def get_current_price_batch(
+        self,
+        symbols: List[str],
+        market_code: str = "J"
+    ) -> List[Dict]:
         """
         여러 종목 현재가 일괄 조회
 
         Args:
             symbols: 종목 코드 리스트
+            market_code: 시장 구분 코드
+                - "J": KRX (정규장)
+                - "NX": NXT
+                - "UN": 통합 (NXT + KRX)
 
         Returns:
             현재가 정보 리스트
@@ -913,10 +930,10 @@ class KISAPIClient:
 
         for i, symbol in enumerate(symbols):
             try:
-                data = self.get_current_price(symbol)
+                data = self.get_current_price(symbol, market_code=market_code)
                 if data:
                     results.append(data)
-                    
+
                 if (i + 1) % 10 == 0:
                     logger.info("✓ [%d/%d] 현재가 조회 중...", i + 1, len(symbols))
 
@@ -1155,6 +1172,164 @@ class KISAPIClient:
         except requests.RequestException as e:
             logger.error("요청 실패: %s", str(e))
             return None
+
+    def get_stock_info(self, symbol: str, prdt_type_cd: str = "300") -> Optional[Dict]:
+        """
+        주식기본조회 - 종목 상세 정보 조회 (NXT 지원 여부 포함)
+
+        Args:
+            symbol: 종목 코드 (6자리)
+            prdt_type_cd: 상품유형코드
+                - "300": 주식, ETF, ETN, ELW
+                - "301": 선물옵션
+                - "302": 채권
+                - "306": ELS
+
+        Returns:
+            종목 정보 딕셔너리
+            {
+                "symbol": "005930",
+                "name": "삼성전자",
+                "exchange": "KOSPI",
+                "listing_date": "1975-06-11",
+                "is_nxt_tradable": True,    # NXT 거래 가능 여부
+                "is_nxt_stopped": False,    # NXT 거래정지 여부
+                "is_trading_stopped": False, # 일반 거래정지 여부
+                "is_managed": False,        # 관리종목 여부
+                ...
+            }
+        """
+        url = f"{self.base_url}{self.STOCK_INFO_URL}"
+        tr_id = "CTPF1002R"
+
+        params = {
+            "PRDT_TYPE_CD": prdt_type_cd,
+            "PDNO": symbol,
+        }
+
+        # 전역 Rate Limiter 대기
+        self._wait_for_rate_limit()
+
+        headers = self._get_headers(tr_id)
+
+        try:
+            response = requests.get(url, headers=headers, params=params)
+
+            if response.status_code == 200:
+                result = response.json()
+
+                if result.get("rt_cd") == "0":  # 성공
+                    output = result.get("output", {})
+
+                    # 시장 구분 코드 -> 시장명 매핑
+                    market_id = output.get("mket_id_cd", "")
+                    exchange_map = {
+                        "STK": "KOSPI",
+                        "KSQ": "KOSDAQ",
+                        "KNX": "KONEX",
+                    }
+
+                    # 상장일 포맷 변환
+                    kospi_listing = output.get("scts_mket_lstg_dt", "")
+                    kosdaq_listing = output.get("kosdaq_mket_lstg_dt", "")
+                    listing_date = self._format_date(kospi_listing or kosdaq_listing)
+
+                    return {
+                        "symbol": symbol,
+                        "name": output.get("prdt_name", ""),  # 상품명
+                        "name_abbr": output.get("prdt_abrv_name", ""),  # 약어명
+                        "name_eng": output.get("prdt_eng_name", ""),  # 영문명
+                        "exchange": exchange_map.get(market_id, market_id),
+                        "listing_date": listing_date,
+                        "par_value": int(output.get("papr", 0) or 0),  # 액면가
+                        "listed_shares": int(output.get("lstg_stqt", 0) or 0),  # 상장주수
+                        "capital": int(output.get("cpta", 0) or 0),  # 자본금
+                        "prev_close": int(output.get("bfdy_clpr", 0) or 0),  # 전일종가
+                        "current_close": int(output.get("thdt_clpr", 0) or 0),  # 당일종가
+                        # NXT 관련 필드
+                        "is_nxt_tradable": output.get("cptt_trad_tr_psbl_yn", "N") == "Y",
+                        "is_nxt_stopped": output.get("nxt_tr_stop_yn", "N") == "Y",
+                        # 거래 상태 필드
+                        "is_trading_stopped": output.get("tr_stop_yn", "N") == "Y",
+                        "is_managed": output.get("admn_item_yn", "N") == "Y",  # 관리종목
+                        # 기타 분류
+                        "is_kospi200": output.get("kospi200_item_yn", "N") == "Y",
+                        "is_etf": output.get("etf_dvsn_cd", "") != "",
+                        "stock_type": output.get("stck_kind_cd", ""),  # 주식종류코드
+                    }
+                else:
+                    logger.error(
+                        "API 에러 [%s]: %s - %s",
+                        symbol,
+                        result.get("msg_cd"),
+                        result.get("msg1")
+                    )
+                    return None
+            else:
+                logger.error("HTTP 에러 [%s]: %s", symbol, response.status_code)
+                return None
+
+        except requests.RequestException as e:
+            logger.error("요청 실패 [%s]: %s", symbol, str(e))
+            return None
+
+    def is_nxt_tradable(self, symbol: str) -> bool:
+        """
+        NXT 거래 가능 여부 확인 (단일 종목)
+
+        NXT 거래 가능 조건:
+        - cptt_trad_tr_psbl_yn == 'Y' (NXT 거래종목)
+        - nxt_tr_stop_yn == 'N' (NXT 거래정지 아님)
+
+        Args:
+            symbol: 종목 코드 (6자리)
+
+        Returns:
+            NXT 거래 가능 여부 (True/False)
+        """
+        info = self.get_stock_info(symbol)
+        if info is None:
+            return False
+
+        return info.get("is_nxt_tradable", False) and not info.get("is_nxt_stopped", True)
+
+    def get_nxt_tradable_stocks(self, symbols: List[str]) -> List[Dict]:
+        """
+        NXT 거래 가능 종목 필터링 (여러 종목)
+
+        Args:
+            symbols: 종목 코드 리스트
+
+        Returns:
+            NXT 거래 가능 종목 정보 리스트
+            [
+                {
+                    "symbol": "005930",
+                    "name": "삼성전자",
+                    "is_nxt_tradable": True,
+                    ...
+                },
+                ...
+            ]
+        """
+        nxt_tradable = []
+
+        for i, symbol in enumerate(symbols):
+            try:
+                info = self.get_stock_info(symbol)
+
+                if info and info.get("is_nxt_tradable") and not info.get("is_nxt_stopped"):
+                    nxt_tradable.append(info)
+
+                if (i + 1) % 50 == 0:
+                    logger.info("✓ [%d/%d] NXT 종목 조회 중... (가능: %d개)",
+                               i + 1, len(symbols), len(nxt_tradable))
+
+            except Exception as e:
+                logger.error("✗ [%d/%d] %s: %s", i + 1, len(symbols), symbol, str(e))
+
+        logger.info("✓ NXT 거래 가능 종목 조회 완료: %d/%d건", len(nxt_tradable), len(symbols))
+        return nxt_tradable
 
 
 class KISMasterClient:

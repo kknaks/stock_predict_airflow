@@ -13,10 +13,12 @@ from airflow.utils import timezone
 import math
 
 from plugins.operators.stock_data_operators import (
-    MarketOpenCheckOperator,
     SymbolLoaderOperator,
-    MarketDataOperator,
     StockDataOperator
+)
+from plugins.operators.market_data_operator import (
+    MarketOpenCheckOperator,
+    MarketDataOperator
 )
 
 
