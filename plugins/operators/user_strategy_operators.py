@@ -112,57 +112,22 @@ class UserStrategyOperator(BaseOperator):
                 should_issue_token = account_type in ('PAPER', 'REAL') and not self.is_mock
 
                 if should_issue_token:
-                    # DB 캐시된 토큰 확인
-                    cached_token = s.get('kis_access_token')
-                    cached_expires = s.get('kis_token_expired_at')
+                    # 항상 새 토큰 발급 (DAG가 토큰 발급의 주체)
+                    kis_client = KISAPIClient(s['app_key'], s['app_secret'])
+                    expires_in, ws_token, access_token = kis_client.get_websocket_user_token()
 
-                    if cached_token and cached_expires:
-                        # timezone-aware datetime 처리
-                        if hasattr(cached_expires, 'tzinfo') and cached_expires.tzinfo:
-                            now = datetime.now(cached_expires.tzinfo)
-                        else:
-                            now = datetime.now()
+                    # 만료 시간: 23시간 후 (24시간 - 1시간 버퍼)
+                    token_expires_at = datetime.now() + timedelta(hours=23)
 
-                        if now < cached_expires:
-                            # 캐시된 토큰 사용
-                            kis_client = KISAPIClient(s['app_key'], s['app_secret'])
-                            expires_in, ws_token = kis_client.get_websocket_token_with_access_token(cached_token)
-                            account_data.update({
-                                'expires_in': expires_in,
-                                'ws_token': ws_token,
-                                'access_token': cached_token,
-                            })
-                            print(f"      -> Cached token used for {s['nickname']} (expires: {cached_expires})")
-                        else:
-                            # 토큰 만료됨 - 새로 발급
-                            kis_client = KISAPIClient(s['app_key'], s['app_secret'])
-                            expires_in, ws_token, access_token = kis_client.get_websocket_user_token()
-                            token_expires_at = datetime.now() + timedelta(seconds=expires_in - 3600)
+                    # DB에 토큰 저장 (항상 업데이트)
+                    db_writer.update_account_token(s['account_id'], access_token, token_expires_at)
 
-                            # DB에 토큰 저장
-                            db_writer.update_account_token(s['account_id'], access_token, token_expires_at)
-
-                            account_data.update({
-                                'expires_in': expires_in,
-                                'ws_token': ws_token,
-                                'access_token': access_token,
-                            })
-                            print(f"      -> Token renewed for {s['nickname']} (expired: {cached_expires})")
-                    else:
-                        # 캐시된 토큰 없음 - 새로 발급
-                        kis_client = KISAPIClient(s['app_key'], s['app_secret'])
-                        expires_in, ws_token, access_token = kis_client.get_websocket_user_token()
-                        token_expires_at = datetime.now() + timedelta(seconds=expires_in - 3600)
-
-                        # DB에 토큰 저장
-                        db_writer.update_account_token(s['account_id'], access_token, token_expires_at)
-
-                        account_data.update({
-                            'expires_in': expires_in,
-                            'ws_token': ws_token,
-                            'access_token': access_token,
-                        })
-                        print(f"      -> New token issued for {s['nickname']} (account_type={account_type})")
+                    account_data.update({
+                        'expires_in': expires_in,
+                        'ws_token': ws_token,
+                        'access_token': access_token,
+                    })
+                    print(f"      -> Token issued for {s['nickname']} (expires: {token_expires_at})")
 
                 user_accounts.append(account_data)
 
