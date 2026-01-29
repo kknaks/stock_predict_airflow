@@ -187,10 +187,10 @@ with DAG(
         print(f"총 종목 수: {message.get('total_count', 0)}")
         print(json.dumps(message, ensure_ascii=False, indent=2))
 
-    publish_kafka = PythonOperator(
-        task_id='publish_kafka',
-        python_callable=log_kafka_message,
-    )
+    # publish_kafka = PythonOperator(
+    #     task_id='publish_kafka',
+    #     python_callable=log_kafka_message,
+    # )
 
     publish_kafka = KafkaPublishOperator(
         task_id='publish_kafka',
