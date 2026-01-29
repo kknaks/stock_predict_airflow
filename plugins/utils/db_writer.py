@@ -71,6 +71,8 @@ class StockDataWriter:
                     'sector': stmt.excluded.sector,
                     'industry': stmt.excluded.industry,
                     'market_cap': stmt.excluded.market_cap,
+                    'is_nxt_tradable': stmt.excluded.is_nxt_tradable,
+                    'is_nxt_stopped': stmt.excluded.is_nxt_stopped,
                     'listing_date': stmt.excluded.listing_date,
                     'status': stmt.excluded.status,
                     'delist_date': stmt.excluded.delist_date,

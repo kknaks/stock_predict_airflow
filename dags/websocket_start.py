@@ -28,7 +28,7 @@ with DAG(
     dag_id='websocket_start',
     default_args=default_args,
     description='가격 WebSocket 연결 시작',
-    schedule_interval='30 23 * * 0-4',  # 평일 오전 8시 30분 KST (UTC 23:30 전날, UTC+9 기준)
+    schedule_interval='50 22 * * 0-4',  # 평일 오전 7시 50분 KST (UTC 22:50, 장 시작 10분 전)
     start_date=timezone.datetime(2025, 1, 1),
     catchup=False,
     tags=['websocket', 'kafka', 'realtime'],

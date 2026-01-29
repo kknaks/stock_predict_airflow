@@ -1,7 +1,7 @@
 """
-일일 데이터 수집 DAG
+KRX 일일 데이터 수집 DAG
 
-매일 장 마감 후 KOSPI/KOSDAQ 전 종목 데이터 수집 및 기술지표 계산
+매일 장 마감 후 (20:01 KST) KOSPI/KOSDAQ 전 종목 데이터 수집 및 기술지표 계산
 - Dynamic Task Mapping으로 종목 수에 따라 자동 배치 생성
 """
 
@@ -47,20 +47,18 @@ default_args = {
 }
 
 with DAG(
-    dag_id='daily_stock_data',
+    dag_id='daily_krx_data',
     default_args=default_args,
-    description='일일 주식 데이터 수집 (KOSPI/KOSDAQ) - 동적 배치 처리',
-    schedule_interval='31 6 * * 1-5',  # 평일 오후 5시 KST (UTC 08:00, UTC+9 기준)
+    description='KRX 일일 주식 데이터 수집 (KOSPI/KOSDAQ) - 동적 배치 처리',
+    schedule_interval='31 6 * * 1-5',  # 평일 15:31 KST (06:31 UTC)
     start_date=timezone.datetime(2025, 1, 1),
     catchup=False,
-    tags=['stock', 'daily', 'data-collection'],
-    max_active_tasks=MAX_PARALLEL_BATCHES,  # 동시 실행 Task 제한
+    tags=['stock', 'daily', 'krx'],
+    max_active_tasks=MAX_PARALLEL_BATCHES,
 ) as dag:
 
     start = EmptyOperator(task_id='start')
 
-    # 거래일 체크 (한투 API + Airflow Variable 캐싱)
-    # ⚠️ 같은 날 여러 DAG에서 호출해도 1회만 API 호출
     check_market = MarketOpenCheckOperator(
         task_id='check_market_open',
         branch_if_open='load_active_symbols',
@@ -69,26 +67,22 @@ with DAG(
 
     skip = EmptyOperator(task_id='skip_collection')
 
-    # 1. DB에서 ACTIVE 종목만 조회
     load_symbols = SymbolLoaderOperator(
         task_id='load_active_symbols',
         load_mode='active'
     )
 
-    # 2. 시장 지수 수집 (fetch → calc gaps → save)
     process_market = MarketDataOperator(
         task_id='process_market_indices',
         data_start_date='{{ data_interval_end | ds }}',
         data_end_date='{{ data_interval_end | ds }}'
     )
 
-    # 3. 배치 인덱스 계산 (종목 수 기반)
     calc_batches = PythonOperator(
         task_id='calculate_batches',
         python_callable=calculate_batch_indices,
     )
 
-    # 4. 종목 데이터 배치 처리 (Dynamic Task Mapping)
     process_stocks = StockDataOperator.partial(
         task_id='process_stock_batch',
         data_start_date='{{ data_interval_end | ds }}',
@@ -98,15 +92,8 @@ with DAG(
         symbols_per_batch=SYMBOLS_PER_BATCH,
     ).expand(symbol_batch_index=calc_batches.output)
 
-    # 5. 예측 데이터 채점
-    # score_predictions = PythonOperator(
-    #     task_id='score_predictions',
-    #     python_callable=score_predictions,
-    # )
-
     end = EmptyOperator(task_id='end', trigger_rule='none_failed_min_one_success')
 
-    # Task Flow
     start >> check_market
     check_market >> skip >> end
     check_market >> load_symbols >> process_market >> calc_batches >> process_stocks >> end

@@ -42,12 +42,14 @@ class SymbolLoaderOperator(BaseOperator):
         self,
         load_mode='active',
         db_conn_id='stock_db',
+        kis_conn_id='kis_api',
         *args,
         **kwargs
     ):
         super().__init__(*args, **kwargs)
         self.load_mode = load_mode
         self.db_conn_id = db_conn_id
+        self.kis_conn_id = kis_conn_id
 
     def execute(self, context):
         print("=" * 80)
@@ -64,6 +66,38 @@ class SymbolLoaderOperator(BaseOperator):
 
             symbols = kis_master.get_listed_symbols(market="ALL")
             print(f"✓ 조회된 종목 수: {len(symbols)}")
+
+            # NXT 거래 가능 여부 조회
+            kis_app_key, kis_app_secret = get_kis_credentials(self.kis_conn_id)
+            rate_limiter = RateLimiter(max_calls=RATE_LIMIT_PER_BATCH, time_window=1.0)
+            kis_client = KISAPIClient(
+                kis_app_key,
+                kis_app_secret,
+                rate_limiter=rate_limiter
+            )
+
+            print("\nNXT 거래 가능 여부 조회 중...")
+            nxt_count = 0
+            for i, sym in enumerate(symbols):
+                try:
+                    stock_info = kis_client.get_stock_info(sym['symbol'])
+                    if stock_info:
+                        sym['is_nxt_tradable'] = stock_info.get('is_nxt_tradable', False)
+                        sym['is_nxt_stopped'] = stock_info.get('is_nxt_stopped', True)
+                        if sym['is_nxt_tradable'] and not sym['is_nxt_stopped']:
+                            nxt_count += 1
+                    else:
+                        sym['is_nxt_tradable'] = None
+                        sym['is_nxt_stopped'] = None
+                except Exception as e:
+                    print(f"  [{i+1}] {sym['symbol']}: NXT 조회 실패 - {e}")
+                    sym['is_nxt_tradable'] = None
+                    sym['is_nxt_stopped'] = None
+
+                if (i + 1) % 100 == 0:
+                    print(f"  진행: {i+1}/{len(symbols)} (NXT 가능: {nxt_count}개)")
+
+            print(f"✓ NXT 조회 완료: {nxt_count}개 거래 가능")
 
             # DB 저장
             saved_count = db_writer.upsert_stock_metadata(symbols)
@@ -179,7 +213,8 @@ class StockDataOperator(BaseOperator):
                 data = kis_client.get_stock_ohlcv(
                     symbol=symbol,
                     start_date=start.replace('-', ''),
-                    end_date=end.replace('-', '')
+                    end_date=end.replace('-', ''),
+                    market_code="UN"
                 )
                 for row in data:
                     row['symbol'] = symbol

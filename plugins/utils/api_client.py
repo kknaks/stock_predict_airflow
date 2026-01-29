@@ -492,7 +492,8 @@ class KISAPIClient:
         symbol: str,
         start_date: str,  # "20200101"
         end_date: str,    # "20251231"
-        period: str = "D"  # D (일봉), W (주봉), M (월봉), Y (년봉)
+        period: str = "D",  # D (일봉), W (주봉), M (월봉), Y (년봉)
+        market_code: str = "J"  # J (KRX), NX (NXT), UN (통합)
     ) -> List[Dict]:
         """
         종목 OHLCV 조회 (일/주/월/년봉)
@@ -510,7 +511,7 @@ class KISAPIClient:
         tr_id = "FHKST03010100"
 
         params = {
-            "FID_COND_MRKT_DIV_CODE": "J",  # KRX
+            "FID_COND_MRKT_DIV_CODE": market_code,
             "FID_INPUT_ISCD": symbol,
             "FID_INPUT_DATE_1": start_date,
             "FID_INPUT_DATE_2": end_date,

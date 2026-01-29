@@ -120,6 +120,8 @@ class StockMetadata(Base, TimestampMixin):
     sector = Column(String(100), nullable=True)
     industry = Column(String(100), nullable=True)
     market_cap = Column(Numeric(20, 2), nullable=True)
+    is_nxt_tradable = Column(Boolean, nullable=True)
+    is_nxt_stopped = Column(Boolean, nullable=True)
     listing_date = Column(Date, nullable=True)
     status = Column(Enum(StockStatus), default=StockStatus.ACTIVE, nullable=False)
     delist_date = Column(Date, nullable=True)
