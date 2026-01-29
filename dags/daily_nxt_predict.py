@@ -173,12 +173,12 @@ with DAG(
         python_callable=log_kafka_message,
     )
 
-    # publish_kafka = KafkaPublishOperator(
-    #     task_id='publish_kafka',
-    #     kafka_topic='extract_daily_candidate',
-    #     message="{{ ti.xcom_pull(key='kafka_message', task_ids='build_kafka_message') }}",
-    #     message_key="gap_up_{{ execution_date.strftime('%Y%m%d_%H%M%S') }}",
-    # )
+    publish_kafka = KafkaPublishOperator(
+        task_id='publish_kafka',
+        kafka_topic='extract_daily_candidate',
+        message="{{ ti.xcom_pull(key='kafka_message', task_ids='build_kafka_message') }}",
+        message_key="gap_up_{{ execution_date.strftime('%Y%m%d_%H%M%S') }}",
+    )
 
     # ========================================
     # 스킵 및 종료
