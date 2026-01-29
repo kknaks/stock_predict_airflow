@@ -57,6 +57,13 @@ class ExchangeFilterOperator(BaseOperator):
         kospi_stocks = ti.xcom_pull(key=self.xcom_key, task_ids=self.kospi_task_id) or []
         kosdaq_stocks = ti.xcom_pull(key=self.xcom_key, task_ids=self.kosdaq_task_id) or []
 
+        for stock in kospi_stocks:
+            if 'exchange' not in stock:
+                stock['exchange'] = 'KOSPI'
+        for stock in kosdaq_stocks:
+            if 'exchange' not in stock:
+                stock['exchange'] = 'KOSDAQ'
+
         all_stocks = kospi_stocks + kosdaq_stocks
         print(f"KOSPI: {len(kospi_stocks)}건, KOSDAQ: {len(kosdaq_stocks)}건, 합계: {len(all_stocks)}건")
 
