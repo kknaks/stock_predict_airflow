@@ -99,8 +99,8 @@ with DAG(
             task_ids='filter_gap_up'
         ) or []
         if not gap_up_stocks:
-            print("⚠️  발행할 갭상승 종목이 없습니다.")
-            return None
+            print("⚠️  갭상승 종목이 없습니다. 빈 메시지를 발행합니다.")
+            gap_up_stocks = []
 
         print(f"✓ 갭상승 종목: {len(gap_up_stocks)}개")
 
