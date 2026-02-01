@@ -52,7 +52,7 @@ with DAG(
     get_expected_kospi = SearchStockDataOperator(
         task_id='get_expected_kospi',
         market='J',
-        fid_input="0000",  # 0001: 거래소(KOSPI)
+        fid_input="0001",  # 0001: 거래소(KOSPI)
         sort_cls='1',      # 0: 상승률 순
         mkop_cls='0',      # 0: 장전 예상
     )

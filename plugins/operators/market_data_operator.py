@@ -66,7 +66,9 @@ class MarketOpenCheckOperator(BaseOperator):
         print("거래일(개장일) 여부 확인")
         print("=" * 80)
 
-        execution_date = context['execution_date']
+        from datetime import timezone, timedelta
+        KST = timezone(timedelta(hours=9))
+        execution_date = context['logical_date'].astimezone(KST)
         target_date = execution_date.strftime('%Y%m%d')
         target_date_fmt = execution_date.strftime('%Y-%m-%d')
 
