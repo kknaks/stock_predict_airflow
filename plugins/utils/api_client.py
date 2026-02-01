@@ -270,8 +270,16 @@ class KISAPIClient:
                 self._token_expires_at = datetime.now() + timedelta(seconds=expires_in - 3600)
 
                 # 3. Airflow Variable에 토큰 저장 (다른 Task에서도 사용 가능)
-                Variable.set(self.TOKEN_CACHE_KEY, self._access_token)
-                Variable.set(self.TOKEN_EXPIRES_KEY, self._token_expires_at.isoformat())
+                try:
+                    Variable.set(self.TOKEN_CACHE_KEY, self._access_token)
+                except Exception:
+                    Variable.delete(self.TOKEN_CACHE_KEY)
+                    Variable.set(self.TOKEN_CACHE_KEY, self._access_token)
+                try:
+                    Variable.set(self.TOKEN_EXPIRES_KEY, self._token_expires_at.isoformat())
+                except Exception:
+                    Variable.delete(self.TOKEN_EXPIRES_KEY)
+                    Variable.set(self.TOKEN_EXPIRES_KEY, self._token_expires_at.isoformat())
 
                 logger.info("✓ 토큰 발급 성공 (만료: %s)", self._token_expires_at)
                 return self._access_token
