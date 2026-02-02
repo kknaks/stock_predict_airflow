@@ -139,7 +139,7 @@ class StockDataOperator(BaseOperator):
         symbols_per_batch: 배치당 종목 수 (기본 100)
     """
 
-    template_fields = ('data_start_date', 'data_end_date', 'symbol_batch_index')
+    template_fields = ('data_start_date', 'data_end_date', 'symbol_batch_index', 'market_code')
 
     @apply_defaults
     def __init__(
@@ -154,6 +154,7 @@ class StockDataOperator(BaseOperator):
         batch_size=100,
         symbol_batch_index=None,  # 배치 인덱스 (0, 1, 2, ...)
         symbols_per_batch=100,     # 배치당 종목 수
+        market_code='J',           # 시장 구분 (J: KRX, NX: NXT, UN: 통합)
         *args,
         **kwargs
     ):
@@ -168,6 +169,7 @@ class StockDataOperator(BaseOperator):
         self.batch_size = batch_size
         self.symbol_batch_index = symbol_batch_index
         self.symbols_per_batch = symbols_per_batch
+        self.market_code = market_code
 
     def execute(self, context):
         print("=" * 80)
@@ -214,7 +216,7 @@ class StockDataOperator(BaseOperator):
                     symbol=symbol,
                     start_date=start.replace('-', ''),
                     end_date=end.replace('-', ''),
-                    market_code="UN"
+                    market_code=self.market_code
                 )
                 for row in data:
                     row['symbol'] = symbol

@@ -90,6 +90,7 @@ with DAG(
         include_historical=True,
         historical_days=60,
         symbols_per_batch=SYMBOLS_PER_BATCH,
+        market_code='UN',
     ).expand(symbol_batch_index=calc_batches.output)
 
     end = EmptyOperator(task_id='end', trigger_rule='none_failed_min_one_success')
