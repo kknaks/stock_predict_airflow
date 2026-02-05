@@ -1,3 +1,4 @@
+import time
 from datetime import timedelta, timezone as tz
 from airflow import DAG
 from airflow.operators.empty import EmptyOperator
@@ -37,6 +38,12 @@ with DAG(
     # 1. 시작 및 거래일 체크
     # ========================================
     start = EmptyOperator(task_id='start')
+
+    # 9시 정각 트리거 후 10초 대기 (초 단위 시작용)
+    wait_10s = PythonOperator(
+        task_id='wait_10s',
+        python_callable=lambda: time.sleep(10),
+    )
 
     # 한투 API로 휴장일 체크 (주말 + 공휴일)
     # ⚠️ 이 API는 1일 1회 호출 권장
@@ -213,7 +220,7 @@ with DAG(
     # Task 의존성 정의
     # ========================================
     # 메인 파이프라인
-    start >> check_market
+    start >> wait_10s >> check_market
 
     # 거래일인 경우:
     # 1) KOSPI/KOSDAQ 예상종목 병렬 조회 (~30건씩, 총 ~60건)

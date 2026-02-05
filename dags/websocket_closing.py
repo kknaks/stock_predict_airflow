@@ -27,7 +27,7 @@ with DAG(
     dag_id='websocket_closing',
     default_args=default_args,
     description='장 마감 시 주문 마감 처리 (CLOSING 명령)',
-    schedule_interval='50 10 * * 1-5',  # 평일 오후 7시 50분 KST (UTC 10:50, 장 마감 10분 전)
+    schedule_interval='20 6 * * 1-5',  # 평일 오후 7시 50분 KST (UTC 10:50, 장 마감 10분 전)
     start_date=airflow_timezone.datetime(2025, 1, 1),
     catchup=False,
     tags=['websocket', 'kafka', 'closing'],
