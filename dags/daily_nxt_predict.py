@@ -51,7 +51,7 @@ with DAG(
     # KOSPI 예상 상승 종목 (~30건)
     get_expected_kospi = SearchStockDataOperator(
         task_id='get_expected_kospi',
-        market='NX',
+        market='J',
         fid_input="0001",  # 0001: 거래소(KOSPI)
         sort_cls='1',      # 0: 상승률 순
         mkop_cls='0',      # 0: 장전 예상
@@ -60,7 +60,7 @@ with DAG(
     # KOSDAQ 예상 상승 종목 (~30건)
     get_expected_kosdaq = SearchStockDataOperator(
         task_id='get_expected_kosdaq',
-        market='NX',
+        market='J',
         fid_input="1001",  # 1001: 코스닥
         sort_cls='1',      # 0: 상승률 순
         mkop_cls='0',      # 0: 장전 예상
