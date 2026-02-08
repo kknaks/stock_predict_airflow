@@ -41,6 +41,8 @@ x-airflow-common:
     - ./plugins:/opt/airflow/plugins
     - ./config:/opt/airflow/config
     - ./logs:/opt/airflow/logs
+    - ./data/boliger:/opt/airflow/data/boliger:ro
+    - ../shared/boliger:/shared/boliger
   user: "${AIRFLOW_UID:-50000}:0"
   networks:
     - stock-predict-network
@@ -94,7 +96,7 @@ services:
         # Connections import from JSON
         if [ -f /opt/airflow/config/connections.json ]; then
           echo "Importing connections from /opt/airflow/config/connections.json"
-          /entrypoint airflow connections import /opt/airflow/config/connections.json
+          /entrypoint airflow connections import --overwrite /opt/airflow/config/connections.json
           echo "✓ Connections import completed!"
         else
           echo "⚠ connections.json not found, skipping..."

@@ -536,17 +536,19 @@ class WebSocketStartOperator(BaseOperator):
 
     Args:
         target: 대상 (PRICE, ACCOUNT, ALL)
+        exchange_type: 거래소 구분 (NXT, KRX, None)
         kafka_topic: 카프카 토픽 (기본값: kis_websocket_commands)
         kafka_conn_id: Airflow Kafka connection ID (기본값: kafka_default)
         kis_conn_id: Airflow KIS API connection ID (기본값: kis_api)
     """
 
-    template_fields = ('target', 'kafka_topic')
+    template_fields = ('target', 'kafka_topic', 'exchange_type')
 
     @apply_defaults
     def __init__(
         self,
         target='PRICE',
+        exchange_type=None,
         kafka_topic='kis_websocket_commands',
         kafka_conn_id='kafka_default',
         kis_conn_id='kis_api',
@@ -555,6 +557,7 @@ class WebSocketStartOperator(BaseOperator):
     ):
         super().__init__(*args, **kwargs)
         self.target = target
+        self.exchange_type = exchange_type
         self.kafka_topic = kafka_topic
         self.kafka_conn_id = kafka_conn_id
         self.kis_conn_id = kis_conn_id
@@ -562,13 +565,14 @@ class WebSocketStartOperator(BaseOperator):
     def execute(self, context):
         import json
 
+        exchange_label = f", exchange: {self.exchange_type}" if self.exchange_type else ""
         print("=" * 80)
-        print(f"WebSocket 시작 명령 발행 (target: {self.target})")
+        print(f"WebSocket 시작 명령 발행 (target: {self.target}{exchange_label})")
         print("=" * 80)
 
         # 1. 한투 API 자격증명 가져오기
         app_key, app_secret = get_kis_credentials(self.kis_conn_id)
-        print(f"✓ 자격증명 로드 완료")
+        print(f"✓ 자격증명 로드 완료 (conn: {self.kis_conn_id})")
 
         # 2. 토큰 발급 (기존 로직 - Airflow Variable 캐싱)
         kis_client = KISAPIClient(app_key, app_secret)
@@ -599,16 +603,24 @@ class WebSocketStartOperator(BaseOperator):
             }
         }
 
-        # 4. Kafka 발행 (기존 KafkaPublishOperator와 동일한 방식)
+        # exchange_type이 지정된 경우 메시지에 포함
+        if self.exchange_type:
+            command_message["exchange_type"] = self.exchange_type
+
+        # 5. Kafka 발행 (기존 KafkaPublishOperator와 동일한 방식)
         try:
             from airflow.providers.apache.kafka.hooks.produce import KafkaProducerHook
 
             producer_hook = KafkaProducerHook(kafka_config_id=self.kafka_conn_id)
             producer = producer_hook.get_producer()
 
+            kafka_key = f"websocket_{self.target}"
+            if self.exchange_type:
+                kafka_key = f"websocket_{self.target}_{self.exchange_type}"
+
             producer.produce(
                 topic=self.kafka_topic,
-                key=f"websocket_{self.target}".encode('utf-8'),
+                key=kafka_key.encode('utf-8'),
                 value=json.dumps(command_message, ensure_ascii=False).encode('utf-8')
             )
             producer.flush()
@@ -616,6 +628,8 @@ class WebSocketStartOperator(BaseOperator):
             print(f"✓ WebSocket START 명령 발행 완료 - topic={self.kafka_topic}")
             print(f"  - access_token: {access_token[:20]}...")
             print(f"  - ws_token: {ws_token[:20]}...")
+            if self.exchange_type:
+                print(f"  - exchange_type: {self.exchange_type}")
 
         except ImportError:
             print("⚠️  apache-airflow-providers-apache-kafka가 설치되지 않았습니다.")

@@ -172,11 +172,11 @@ class KISAPIClient:
     # 서버 URL
     REAL_SERVER = "https://openapi.koreainvestment.com:9443"
     
-    # 토큰 캐시 키
-    TOKEN_CACHE_KEY = "kis_access_token"
-    TOKEN_EXPIRES_KEY = "kis_token_expires_at"
-    WS_TOKEN_CACHE_KEY = "kis_ws_token"
-    WS_TOKEN_EXPIRES_KEY = "kis_ws_token_expires_at"
+    # 토큰 캐시 키 (기본값, 인스턴스별로 app_key 기반 suffix 추가)
+    _TOKEN_CACHE_PREFIX = "kis_access_token"
+    _TOKEN_EXPIRES_PREFIX = "kis_token_expires_at"
+    _WS_TOKEN_CACHE_PREFIX = "kis_ws_token"
+    _WS_TOKEN_EXPIRES_PREFIX = "kis_ws_token_expires_at"
     DEMO_SERVER = "https://openapivts.koreainvestment.com:29443"
 
     # API 엔드포인트
@@ -211,6 +211,13 @@ class KISAPIClient:
         self.env = env
         self.base_url = self.REAL_SERVER if env == "real" else self.DEMO_SERVER
         self.rate_limiter = rate_limiter
+
+        # app_key 기반 캐시 키 (KRX/NXT 분리)
+        key_suffix = app_key[-8:] if app_key else ""
+        self.TOKEN_CACHE_KEY = f"{self._TOKEN_CACHE_PREFIX}_{key_suffix}"
+        self.TOKEN_EXPIRES_KEY = f"{self._TOKEN_EXPIRES_PREFIX}_{key_suffix}"
+        self.WS_TOKEN_CACHE_KEY = f"{self._WS_TOKEN_CACHE_PREFIX}_{key_suffix}"
+        self.WS_TOKEN_EXPIRES_KEY = f"{self._WS_TOKEN_EXPIRES_PREFIX}_{key_suffix}"
 
         # 토큰 캐싱 (한 번만 발급)
         self._access_token: Optional[str] = None

@@ -13,7 +13,7 @@ RUN apt-get update && \
 USER airflow
 
 # Python 패키지 설치
-COPY requirements.txt /requirements.txt
+COPY --chown=airflow:root requirements.txt /requirements.txt
 RUN pip install --no-cache-dir -r /requirements.txt
 
 # DAG와 plugins를 이미지에 포함
