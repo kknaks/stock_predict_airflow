@@ -173,28 +173,42 @@ class MarketDataOperator(BaseOperator):
         )
 
         try:
+            start_fmt = start.replace('-', '')
+            end_fmt = end.replace('-', '')
+
+            print(f"\n[1/3] KOSPI 지수 조회 중... (0001, {start_fmt}~{end_fmt})")
             kospi_data = kis_client.get_market_index(
-                index_code="0001",
-                start_date=start.replace('-', ''),
-                end_date=end.replace('-', '')
+                index_code="0001", start_date=start_fmt, end_date=end_fmt
             )
+            print(f"  → KOSPI: {len(kospi_data)}건")
 
+            print(f"[2/3] KOSDAQ 지수 조회 중... (1001, {start_fmt}~{end_fmt})")
             kosdaq_data = kis_client.get_market_index(
-                index_code="1001",
-                start_date=start.replace('-', ''),
-                end_date=end.replace('-', '')
+                index_code="1001", start_date=start_fmt, end_date=end_fmt
             )
+            print(f"  → KOSDAQ: {len(kosdaq_data)}건")
 
+            print(f"[3/3] KOSPI200 지수 조회 중... (2001, {start_fmt}~{end_fmt})")
             kospi200_data = kis_client.get_market_index(
-                index_code="2001",
-                start_date=start.replace('-', ''),
-                end_date=end.replace('-', '')
+                index_code="2001", start_date=start_fmt, end_date=end_fmt
             )
-
+            print(f"  → KOSPI200: {len(kospi200_data)}건")
 
             kospi_df = pd.DataFrame(kospi_data)
             kosdaq_df = pd.DataFrame(kosdaq_data)
             kospi200_df = pd.DataFrame(kospi200_data)
+
+            # 빈 데이터 체크
+            if kospi_df.empty or kosdaq_df.empty or kospi200_df.empty:
+                empty_indices = []
+                if kospi_df.empty:
+                    empty_indices.append("KOSPI")
+                if kosdaq_df.empty:
+                    empty_indices.append("KOSDAQ")
+                if kospi200_df.empty:
+                    empty_indices.append("KOSPI200")
+                raise ValueError(f"시장 지수 데이터가 비어있습니다: {', '.join(empty_indices)} (기간: {start} ~ {end})")
+
 
             # kospi + kosdaq 합치기
             market_df = kospi_df.merge(kosdaq_df, on='date', suffixes=('_kospi', '_kosdaq'))
