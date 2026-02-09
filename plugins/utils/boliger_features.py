@@ -65,6 +65,8 @@ DEFAULT_CONFIG = {
     "min_sideways_days": 5,
     "max_seq_len": 50,
     "high_return_threshold": 0.005,
+    "max_bb_position": 0.5,
+    "min_d2": 0.0,
 }
 
 
@@ -748,6 +750,8 @@ def extract_candidates(
     last_date = df["date"].max()
     threshold = cfg.get("threshold_1", 0.01)
     min_sideways = cfg.get("min_sideways_days", 5)
+    max_bb_position = cfg.get("max_bb_position", 0.5)
+    min_d2 = cfg.get("min_d2", 0.0)
 
     candidates = {}
     for symbol, stock_df in df.groupby("symbol"):
@@ -774,6 +778,16 @@ def extract_candidates(
         # 현재 횡보 일수 계산
         current_sideways = int(last_row.get("sideways_days", 0))
         if current_sideways < min_sideways:
+            continue
+
+        # bb_position 필터: 볼린저밴드 하단에 위치한 종목만 (상승 여력)
+        current_bb_position = last_row.get("bb_position", 1.0)
+        if pd.isna(current_bb_position) or current_bb_position >= max_bb_position:
+            continue
+
+        # d2 필터: 2차미분 양수 = 수렴→확산 전환 시점
+        current_d2 = d2.iloc[last_idx]
+        if pd.isna(current_d2) or current_d2 <= min_d2:
             continue
 
         # 시퀀스 길이 결정
