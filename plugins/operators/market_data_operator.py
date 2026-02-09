@@ -68,7 +68,7 @@ class MarketOpenCheckOperator(BaseOperator):
 
         from datetime import timezone, timedelta
         KST = timezone(timedelta(hours=9))
-        execution_date = context['logical_date'].astimezone(KST)
+        execution_date = context['data_interval_end'].astimezone(KST)
         target_date = execution_date.strftime('%Y%m%d')
         target_date_fmt = execution_date.strftime('%Y-%m-%d')
 

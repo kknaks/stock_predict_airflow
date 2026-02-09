@@ -80,15 +80,19 @@ def load_and_predict(**context):
         return
 
     # 2. 시가 조회
+    #    - 오늘 날짜: KIS API 라이브 조회 (매뉴얼이든 스케줄이든)
+    #    - 과거 날짜: DB에서 조회
     price_map = {}
-    if manual_date:
-        # 매뉴얼 모드: DB에서 해당일 시가 조회
+    is_today = target_date == datetime.now(kst).date()
+
+    if manual_date and not is_today:
+        # 매뉴얼 모드 + 과거 날짜: DB에서 해당일 시가 조회
         from sqlalchemy import create_engine, text as sa_text
         from utils.common import get_db_url
 
         db_url = get_db_url("stock_db")
         engine = create_engine(db_url)
-        print(f"[Manual] Querying open prices from DB for {target_date}...")
+        print(f"[Manual/Past] Querying open prices from DB for {target_date}...")
         with engine.connect() as conn:
             result = conn.execute(
                 sa_text("SELECT symbol, open FROM stock_prices WHERE date = :d"),
@@ -99,13 +103,13 @@ def load_and_predict(**context):
                 if sym in candidates:
                     price_map[sym] = float(row[1])
     else:
-        # 라이브 모드: KIS API 현재가 조회
+        # 라이브 모드 (오늘 날짜): KIS API 현재가 조회
         from utils.api_client import KISAPIClient as KISApiClient
         from utils.common import get_kis_credentials
 
         app_key, app_secret = get_kis_credentials("kis_api")
         api_client = KISApiClient(app_key=app_key, app_secret=app_secret)
-        print(f"Querying NXT opening prices for {len(nxt_codes)} stocks...")
+        print(f"Querying NXT opening prices for {len(nxt_codes)} stocks (live)...")
         price_data = api_client.get_current_price_batch(nxt_codes, market_code="NX")
         for p in price_data:
             if p and p.get("open_price", 0) > 0:
