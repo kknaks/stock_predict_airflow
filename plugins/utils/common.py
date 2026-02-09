@@ -10,10 +10,12 @@ from airflow.hooks.base import BaseHook
 # ============================================================
 # RateLimiter 설정
 # 한투 API 초당 20건 제한
-# 병렬 배치 4개 동시 실행 시: 20 / 4 = 5건/초 per batch
+# 병렬 배치 4개 동시 실행 시 (DAG max_active_tasks=4):
+#   각 배치가 독립 프로세스에서 실행되므로 안전 마진 포함
+#   20 / 4 = 5건/초 per batch → 4건/초로 여유 확보
 # ============================================================
 MAX_PARALLEL_BATCHES = 4
-RATE_LIMIT_PER_BATCH = 20 // MAX_PARALLEL_BATCHES  # 5건/초
+RATE_LIMIT_PER_BATCH = (20 // MAX_PARALLEL_BATCHES) - 1  # 4건/초 (안전 마진)
 
 
 def get_db_url(conn_id: str = 'stock_db') -> str:

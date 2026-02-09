@@ -16,12 +16,10 @@ from airflow.utils.decorators import apply_defaults
 # Airflow가 /opt/airflow/plugins를 자동으로 PYTHONPATH에 추가함
 from utils.api_client import KISAPIClient, KISMasterClient
 from utils.rate_limiter import RateLimiter
-from utils.technical_calculator import TechnicalCalculator
 from utils.db_writer import StockDataWriter
 from utils.common import (
     get_db_url,
     get_kis_credentials,
-    MAX_PARALLEL_BATCHES,
     RATE_LIMIT_PER_BATCH,
 )
 
@@ -32,15 +30,17 @@ class SymbolLoaderOperator(BaseOperator):
 
     Args:
         load_mode: 'all' (KIS 마스터 파일에서 전체 조회) | 'active' (DB에서 ACTIVE만 조회)
+        nxt_filter: NXT 필터링 (None: 전체, 'krx_only': KRX만, 'nxt_only': NXT 가능만)
         db_conn_id: Airflow DB connection ID (기본값: stock_db)
     """
 
-    template_fields = ('load_mode',)
+    template_fields = ('load_mode', 'nxt_filter')
 
     @apply_defaults
     def __init__(
         self,
         load_mode='active',
+        nxt_filter=None,
         db_conn_id='stock_db',
         kis_conn_id='kis_api',
         *args,
@@ -48,12 +48,14 @@ class SymbolLoaderOperator(BaseOperator):
     ):
         super().__init__(*args, **kwargs)
         self.load_mode = load_mode
+        self.nxt_filter = nxt_filter
         self.db_conn_id = db_conn_id
         self.kis_conn_id = kis_conn_id
 
     def execute(self, context):
+        filter_label = f", nxt_filter: {self.nxt_filter}" if self.nxt_filter else ""
         print("=" * 80)
-        print(f"Load Symbol List (mode: {self.load_mode})")
+        print(f"Load Symbol List (mode: {self.load_mode}{filter_label})")
         print("=" * 80)
 
         db_url = get_db_url(self.db_conn_id)
@@ -61,7 +63,6 @@ class SymbolLoaderOperator(BaseOperator):
 
         if self.load_mode == 'all':
             # KIS 마스터 파일에서 전체 종목 조회
-            # Reference: https://github.com/koreainvestment/open-trading-api/tree/main/stocks_info
             kis_master = KISMasterClient()
 
             symbols = kis_master.get_listed_symbols(market="ALL")
@@ -106,15 +107,40 @@ class SymbolLoaderOperator(BaseOperator):
             symbol_codes = [s['symbol'] for s in symbols]
 
         else:  # 'active'
-            # DB에서 ACTIVE 종목만 조회
-            # Note: status는 Enum(StockStatus)이므로 대문자 'ACTIVE' 사용
+            # DB에서 ACTIVE 종목 조회 (NXT 필터 적용)
             with db_writer.engine.connect() as conn:
                 from sqlalchemy import text
-                query = text("SELECT symbol FROM stock_metadata WHERE status = 'ACTIVE'")
+
+                if self.nxt_filter == 'nxt_only':
+                    # NXT 거래 가능 종목만
+                    query = text("""
+                        SELECT symbol FROM stock_metadata
+                        WHERE status = 'ACTIVE'
+                          AND is_nxt_tradable = true
+                          AND (is_nxt_stopped = false OR is_nxt_stopped IS NULL)
+                    """)
+                elif self.nxt_filter == 'krx_only':
+                    # KRX 전용 종목 (NXT 불가 또는 NXT 정지)
+                    query = text("""
+                        SELECT symbol FROM stock_metadata
+                        WHERE status = 'ACTIVE'
+                          AND (is_nxt_tradable = false
+                               OR is_nxt_tradable IS NULL
+                               OR is_nxt_stopped = true)
+                    """)
+                else:
+                    # 전체 ACTIVE 종목
+                    query = text("SELECT symbol FROM stock_metadata WHERE status = 'ACTIVE'")
+
                 result = conn.execute(query)
                 symbol_codes = [row[0] for row in result]
 
-            print(f"✓ ACTIVE 종목: {len(symbol_codes)}개")
+            filter_msg = {
+                'nxt_only': 'NXT 거래 가능',
+                'krx_only': 'KRX 전용',
+                None: 'ACTIVE 전체'
+            }.get(self.nxt_filter, 'ACTIVE 전체')
+            print(f"✓ {filter_msg} 종목: {len(symbol_codes)}개")
 
         # XCom에 푸시
         context['task_instance'].xcom_push(key='symbol_list', value=symbol_codes)
@@ -124,19 +150,17 @@ class SymbolLoaderOperator(BaseOperator):
 
 class StockDataOperator(BaseOperator):
     """
-    종목 데이터 수집 및 기술지표 계산 (fetch + save + calc + update 통합)
+    종목 OHLCV 데이터 수집 및 저장
 
     Args:
         data_start_date: 시작일 (YYYY-MM-DD)
         data_end_date: 종료일 (YYYY-MM-DD)
-        include_historical: 과거 데이터 포함 여부 (기술지표 계산용)
-        historical_days: 과거 데이터 조회 일수 (기본 60일)
         db_conn_id: Airflow DB connection ID (기본값: stock_db)
         kis_conn_id: Airflow KIS API connection ID (기본값: kis_api)
-        rate_limit: 초당 API 호출 제한
         batch_size: 배치 크기 (진행 로그 출력 단위)
         symbol_batch_index: 배치 인덱스 (None이면 전체 처리)
         symbols_per_batch: 배치당 종목 수 (기본 100)
+        market_code: 시장 구분 (J: KRX, NX: NXT)
     """
 
     template_fields = ('data_start_date', 'data_end_date', 'symbol_batch_index', 'market_code')
@@ -146,26 +170,20 @@ class StockDataOperator(BaseOperator):
         self,
         data_start_date=None,
         data_end_date=None,
-        include_historical=False,
-        historical_days=60,
         db_conn_id='stock_db',
         kis_conn_id='kis_api',
-        rate_limit=20,
         batch_size=100,
-        symbol_batch_index=None,  # 배치 인덱스 (0, 1, 2, ...)
-        symbols_per_batch=100,     # 배치당 종목 수
-        market_code='J',           # 시장 구분 (J: KRX, NX: NXT, UN: 통합)
+        symbol_batch_index=None,
+        symbols_per_batch=100,
+        market_code='J',
         *args,
         **kwargs
     ):
         super().__init__(*args, **kwargs)
         self.data_start_date = data_start_date
         self.data_end_date = data_end_date
-        self.include_historical = include_historical
-        self.historical_days = historical_days
         self.db_conn_id = db_conn_id
         self.kis_conn_id = kis_conn_id
-        self.rate_limit = rate_limit
         self.batch_size = batch_size
         self.symbol_batch_index = symbol_batch_index
         self.symbols_per_batch = symbols_per_batch
@@ -173,7 +191,7 @@ class StockDataOperator(BaseOperator):
 
     def execute(self, context):
         print("=" * 80)
-        print("Stock Data Pipeline (fetch → save → calc → update)")
+        print(f"Stock Data Pipeline (fetch → save) [market: {self.market_code}]")
         print("=" * 80)
 
         # Airflow Connection에서 자격증명 가져오기
@@ -182,7 +200,6 @@ class StockDataOperator(BaseOperator):
 
         # XCom에서 종목 리스트 가져오기
         full_symbol_list = context['task_instance'].xcom_pull(key='symbol_list')
-        market_data = context['task_instance'].xcom_pull(key='market_data_with_gaps')
 
         # 배치 인덱스가 있으면 해당 배치만 처리
         if self.symbol_batch_index is not None:
@@ -200,7 +217,7 @@ class StockDataOperator(BaseOperator):
         print(f"수집 대상: {len(symbol_list)}개 종목")
         print(f"기간: {start} ~ {end}")
 
-        # 1. Fetch Stock Prices (전역 RateLimiter 사용)
+        # Fetch Stock Prices
         rate_limiter = RateLimiter(max_calls=RATE_LIMIT_PER_BATCH, time_window=1.0)
         kis_client = KISAPIClient(
             kis_app_key,
@@ -209,9 +226,10 @@ class StockDataOperator(BaseOperator):
         )
 
         all_prices = []
+        fail_count = 0
 
-        try:
-            for i, symbol in enumerate(symbol_list):
+        for i, symbol in enumerate(symbol_list):
+            try:
                 data = kis_client.get_stock_ohlcv(
                     symbol=symbol,
                     start_date=start.replace('-', ''),
@@ -221,97 +239,28 @@ class StockDataOperator(BaseOperator):
                 for row in data:
                     row['symbol'] = symbol
                     all_prices.append(row)
+            except Exception as e:
+                fail_count += 1
+                if fail_count <= 5:
+                    print(f"  ⚠️ {symbol}: {e}")
 
-                if (i + 1) % self.batch_size == 0:
-                    print(f"  진행: {i + 1}/{len(symbol_list)} 종목")
+            if (i + 1) % self.batch_size == 0:
+                print(f"  진행: {i + 1}/{len(symbol_list)} 종목")
 
-            print(f"✓ 수집 완료: {len(all_prices)}개 데이터")
+        print(f"✓ 수집 완료: {len(all_prices)}건 (실패: {fail_count}건)")
 
-        except NotImplementedError:
-            print("⚠️  한투 API가 아직 구현되지 않았습니다.")
-            print("⚠️  임시 샘플 데이터를 생성합니다.")
+        if not all_prices:
+            print("⚠️ 수집된 데이터가 없습니다.")
+            return 0
 
-            dates = pd.date_range(start=start, end=end, freq='D')
-            for symbol in symbol_list[:2]:
-                for date in dates:
-                    all_prices.append({
-                        'symbol': symbol,
-                        'date': date.strftime('%Y-%m-%d'),
-                        'open': 50000,
-                        'high': 51000,
-                        'low': 49000,
-                        'close': 50500,
-                        'volume': 10000000
-                    })
-
-        # 2. Save Raw Prices
+        # Save to DB (단일 UPSERT)
         prices_df = pd.DataFrame(all_prices)
         db_writer = StockDataWriter(db_url)
         saved_count = db_writer.upsert_stock_prices(prices_df)
 
-        print(f"✓ 원본 데이터 저장 완료: {saved_count}행")
+        print(f"✓ DB 저장 완료: {saved_count}행")
 
-        # 3. Calculate Technical Indicators
-        if self.include_historical:
-            # 과거 데이터 포함 (daily용)
-            with db_writer.engine.connect() as conn:
-                from sqlalchemy import text
-                exec_date = context['execution_date']
-                query = text("""
-                    SELECT symbol, date, open, high, low, close, volume
-                    FROM stock_prices
-                    WHERE date >= :start_date AND date < :target_date
-                    ORDER BY symbol, date
-                """)
-                result = conn.execute(query, {
-                    "start_date": (exec_date - timedelta(days=self.historical_days)).strftime('%Y-%m-%d'),
-                    "target_date": start
-                })
-                historical_data = [dict(row._mapping) for row in result]
-
-            all_data = historical_data + all_prices
-            prices_df = pd.DataFrame(all_data)
-
-        market_df = pd.DataFrame(market_data)
-
-        calculator = TechnicalCalculator()
-        prices_with_features = calculator.calculate_all_features(prices_df, market_df, db_url=db_url)
-
-        # include_historical인 경우 당일만 필터링
-        if self.include_historical:
-            prices_with_features = prices_with_features[
-                prices_with_features['date'] == start
-            ].copy()
-
-        print(f"✓ 기술지표 계산 완료: {len(prices_with_features)}행")
-
-        # 검증
-        validation = calculator.validate_features(prices_with_features)
-        print(f"\n검증 결과:")
-        print(f"  - 총 행 수: {validation['total_rows']}")
-        print(f"  - 경고: {len(validation['warnings'])}개")
-        for warning in validation['warnings']:
-            print(f"    ⚠️  {warning}")
-
-        # 4. Update Technical Features
-        updated_count = db_writer.upsert_stock_prices(prices_with_features)
-
-        print(f"✓ 기술지표 업데이트 완료: {updated_count}행")
-
-        # 최적화 (backfill인 경우만)
-        if not self.include_historical:
-            print("\n최적화 실행 중...")
-            db_writer.vacuum_analyze()
-            print("✓ VACUUM ANALYZE 완료")
-
-        # 통계
-        stats = db_writer.get_stats()
-        print(f"\n=== DB 통계 ===")
-        print(f"총 종목 수: {stats['total_symbols']}")
-        print(f"활성 종목 수: {stats['active_symbols']}")
-        print(f"가격 데이터: {stats['total_price_records']:,}행")
-
-        return updated_count
+        return saved_count
 
 
 class UpdatePredictionResultsOperator(BaseOperator):

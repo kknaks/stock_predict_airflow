@@ -35,13 +35,13 @@ default_args = {
 
 
 def wait_for_nxt_open(**context):
-    """NXT 시가 확정 대기 (08:00 트리거 후 30초 대기)."""
+    """NXT 시가 확정 대기 (08:00 트리거 후 3초 대기)."""
     manual_date = context.get("params", {}).get("target_date", "")
     if manual_date:
         print(f"[Manual] target_date={manual_date}, skipping wait.")
         return
-    print("Waiting 30s for NXT market open price stabilization...")
-    time.sleep(30)
+    print("Waiting 3s for NXT market open price stabilization...")
+    time.sleep(3)
     print("Wait complete.")
 
 

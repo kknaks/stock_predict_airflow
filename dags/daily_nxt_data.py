@@ -1,7 +1,8 @@
 """
 NXT 일일 데이터 수집 DAG
 
-매일 장 마감 후 (15:31 KST) KOSPI/KOSDAQ 전 종목 데이터 수집 및 기술지표 계산
+매일 장 마감 후 (20:01 KST) NXT 거래 가능 종목 OHLCV 수집
+- stock_metadata의 is_nxt_tradable 기준으로 NXT 가능 종목만 수집
 - Dynamic Task Mapping으로 종목 수에 따라 자동 배치 생성
 """
 
@@ -18,7 +19,6 @@ from plugins.operators.stock_data_operators import (
 )
 from plugins.operators.market_data_operator import (
     MarketOpenCheckOperator,
-    MarketDataOperator
 )
 
 
@@ -49,7 +49,7 @@ default_args = {
 with DAG(
     dag_id='daily_nxt_data',
     default_args=default_args,
-    description='NXT 일일 주식 데이터 수집 (KOSPI/KOSDAQ) - 동적 배치 처리',
+    description='NXT 일일 주식 데이터 수집 (NXT 거래 가능 종목) - 동적 배치 처리',
     schedule_interval='1 11 * * 1-5',  # 평일 20:01 KST (11:01 UTC)
     start_date=timezone.datetime(2025, 1, 1),
     catchup=False,
@@ -67,15 +67,11 @@ with DAG(
 
     skip = EmptyOperator(task_id='skip_collection')
 
+    # NXT 거래 가능 종목만 로드
     load_symbols = SymbolLoaderOperator(
         task_id='load_active_symbols',
-        load_mode='all'
-    )
-
-    process_market = MarketDataOperator(
-        task_id='process_market_indices',
-        data_start_date='{{ data_interval_end | ds }}',
-        data_end_date='{{ data_interval_end | ds }}'
+        load_mode='active',
+        nxt_filter='nxt_only',
     )
 
     calc_batches = PythonOperator(
@@ -87,14 +83,12 @@ with DAG(
         task_id='process_stock_batch',
         data_start_date='{{ data_interval_end | ds }}',
         data_end_date='{{ data_interval_end | ds }}',
-        include_historical=True,
-        historical_days=60,
         symbols_per_batch=SYMBOLS_PER_BATCH,
-        market_code='UN',
+        market_code='NX',
     ).expand(symbol_batch_index=calc_batches.output)
 
     end = EmptyOperator(task_id='end', trigger_rule='none_failed_min_one_success')
 
     start >> check_market
     check_market >> skip >> end
-    check_market >> load_symbols >> process_market >> calc_batches >> process_stocks >> end
+    check_market >> load_symbols >> calc_batches >> process_stocks >> end

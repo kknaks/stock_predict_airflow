@@ -1,7 +1,7 @@
 """
 과거 데이터 백필 DAG
 
-KOSPI/KOSDAQ 전 종목의 과거 OHLCV 데이터 수집 및 기술지표 계산
+KOSPI/KOSDAQ 전 종목의 과거 OHLCV 데이터 수집
 - Dynamic Task Mapping으로 종목 수에 따라 자동 배치 생성
 """
 
@@ -54,7 +54,7 @@ with DAG(
     catchup=False,
     tags=['stock', 'backfill', 'data-collection'],
     max_active_runs=1,
-    max_active_tasks=MAX_PARALLEL_BATCHES,  # 동시 실행 Task 제한
+    max_active_tasks=MAX_PARALLEL_BATCHES,
     params={
         "from_date": Param(
             default="2025-11-01",
@@ -76,7 +76,7 @@ with DAG(
         load_mode='all'
     )
 
-    # 2. 시장 지수 수집 (fetch → calc gaps → save)
+    # 2. 시장 지수 수집 (종목 수집과 병렬 실행)
     process_market = MarketDataOperator(
         task_id='process_market_indices',
         data_start_date='{{ params.from_date }}',
@@ -94,7 +94,6 @@ with DAG(
         task_id='process_stock_batch',
         data_start_date='{{ params.from_date }}',
         data_end_date='{{ params.to_date }}',
-        include_historical=False,
         symbols_per_batch=SYMBOLS_PER_BATCH,
         market_code='UN',
     ).expand(symbol_batch_index=calc_batches.output)
@@ -102,4 +101,5 @@ with DAG(
     end = EmptyOperator(task_id='end')
 
     # Task Flow
-    start >> load_symbols >> process_market >> calc_batches >> process_batches >> end
+    start >> load_symbols >> calc_batches >> process_batches >> end
+    start >> process_market >> end
