@@ -35,13 +35,13 @@ default_args = {
 
 
 def wait_for_krx_open(**context):
-    """KRX 시가 확정 대기 (09:00 트리거 후 30초 대기)."""
+    """KRX 시가 확정 대기 (09:00 트리거 후 1초 대기)."""
     manual_date = context.get("params", {}).get("target_date", "")
     if manual_date:
         print(f"[Manual] target_date={manual_date}, skipping wait.")
         return
-    print("Waiting 30s for KRX market open price stabilization...")
-    time.sleep(30)
+    print("Waiting 1s for KRX market open price stabilization...")
+    time.sleep(1)
     print("Wait complete.")
 
 
