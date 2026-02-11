@@ -65,8 +65,10 @@ DEFAULT_CONFIG = {
     "min_sideways_days": 5,
     "max_seq_len": 50,
     "high_return_threshold": 0.005,
-    "max_bb_position": 0.5,
-    "min_d2": 0.0,
+    "min_bb_position": 0.5,   # 고예측 종목은 BB 상단에 분포 (중앙값 0.99, r=+0.52)
+    "min_d2": 0.0,            # 2차미분 양수 = 수렴→확산 전환 (r=+0.52)
+    "min_bb_width_ratio": 0.08,  # 밴드 폭 넓을수록 고예측 (중앙값 0.112 vs 0.067, r=+0.41)
+    "min_sw_price_range": 0.04,  # 횡보 가격범위 넓을수록 고예측 (중앙값 0.065 vs 0.034, r=+0.42)
 }
 
 
@@ -750,7 +752,7 @@ def extract_candidates(
     last_date = df["date"].max()
     threshold = cfg.get("threshold_1", 0.01)
     min_sideways = cfg.get("min_sideways_days", 5)
-    max_bb_position = cfg.get("max_bb_position", 0.5)
+    min_bb_position = cfg.get("min_bb_position", 0.5)
     min_d2 = cfg.get("min_d2", 0.0)
 
     candidates = {}
@@ -780,14 +782,20 @@ def extract_candidates(
         if current_sideways < min_sideways:
             continue
 
-        # bb_position 필터: 볼린저밴드 하단에 위치한 종목만 (상승 여력)
-        current_bb_position = last_row.get("bb_position", 1.0)
-        if pd.isna(current_bb_position) or current_bb_position >= max_bb_position:
+        # bb_position 필터: BB 상단 돌파 종목 선호 (r=+0.52, 고예측 중앙값 0.99)
+        current_bb_position = last_row.get("bb_position", 0.0)
+        if pd.isna(current_bb_position) or current_bb_position < min_bb_position:
             continue
 
-        # d2 필터: 2차미분 양수 = 수렴→확산 전환 시점
+        # d2 필터: 2차미분 양수 = 수렴→확산 전환 시점 (r=+0.52)
         current_d2 = d2.iloc[last_idx]
         if pd.isna(current_d2) or current_d2 <= min_d2:
+            continue
+
+        # bb_width_ratio 필터: 밴드 폭 넓을수록 고예측 (r=+0.41)
+        min_bb_width = cfg.get("min_bb_width_ratio", 0.08)
+        current_bb_width = last_row.get("bb_width_ratio", 0.0)
+        if pd.isna(current_bb_width) or current_bb_width < min_bb_width:
             continue
 
         # 시퀀스 길이 결정
@@ -817,6 +825,12 @@ def extract_candidates(
             stock_df, last_idx, seq_len, max_seq_len
         )
         if sw_features is None:
+            continue
+
+        # sw_price_range 필터: 횡보 가격범위 넓을수록 고예측 (r=+0.42)
+        min_sw_price_range = cfg.get("min_sw_price_range", 0.04)
+        current_sw_price_range = sw_features[3]  # index 3 = sw_price_range
+        if current_sw_price_range < min_sw_price_range:
             continue
 
         # RF top features (마지막 행 기준)

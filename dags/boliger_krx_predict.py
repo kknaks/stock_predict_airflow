@@ -18,6 +18,7 @@ from datetime import datetime, timedelta, timezone as tz
 from pathlib import Path
 
 from airflow import DAG
+from airflow.exceptions import AirflowSkipException
 from airflow.operators.empty import EmptyOperator
 from airflow.operators.python import PythonOperator
 from airflow.utils import timezone
@@ -63,8 +64,7 @@ def load_and_predict(**context):
     # 1. Candidate pickle 로드
     pickle_path = Path(f"/shared/boliger/candidates_{today_str}.pkl")
     if not pickle_path.exists():
-        print(f"Candidate pickle not found: {pickle_path}")
-        return
+        raise AirflowSkipException(f"Candidate pickle not found: {pickle_path}")
 
     with open(pickle_path, "rb") as f:
         data = pickle.load(f)
@@ -76,8 +76,7 @@ def load_and_predict(**context):
     print(f"Loaded {len(krx_codes)} KRX candidates from {pickle_path}")
 
     if not krx_codes:
-        print("No KRX candidates. Skipping.")
-        return
+        raise AirflowSkipException("No KRX candidates.")
 
     # 2. 시가 조회
     #    - 오늘 날짜: KIS API 라이브 조회 (매뉴얼이든 스케줄이든)
@@ -159,8 +158,9 @@ def load_and_predict(**context):
     print(f"\nFiltered: {len(ready_stocks)} stocks passed gap filter [{min_gap}, {max_gap}]")
 
     if not ready_stocks:
-        print("No stocks passed filter. Skipping Kafka trigger.")
-        return
+        raise AirflowSkipException(
+            f"No stocks passed gap filter [{min_gap}, {max_gap}]."
+        )
 
     # 4. 완성 pickle 저장
     output_dir = Path("/shared/boliger")
