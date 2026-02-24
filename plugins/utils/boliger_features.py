@@ -62,7 +62,7 @@ DEFAULT_CONFIG = {
     "threshold_1": 0.01,
     "min_gap_ratio": 0.0001,
     "max_gap_ratio": 0.03,
-    "min_sideways_days": 5,
+    "min_sideways_days": 2,
     "max_seq_len": 50,
     "high_return_threshold": 0.005,
     "min_bb_position": 0.5,   # 고예측 종목은 BB 상단에 분포 (중앙값 0.99, r=+0.52)
@@ -419,7 +419,7 @@ def compute_sideways_features(df: pd.DataFrame, cfg: Optional[dict] = None) -> p
             raw_sw_days = int(sideways_arr[iloc_pos])
             sw_days = min(raw_sw_days, max_seq_len)
 
-            if iloc_pos < sw_days or sw_days < 3:
+            if iloc_pos < sw_days or sw_days < 2:
                 continue
 
             start = iloc_pos - sw_days
@@ -890,7 +890,7 @@ def _compute_current_sideways_features(
     """
     sw_days = min(seq_len, max_seq_len)
 
-    if last_idx < sw_days or sw_days < 3:
+    if last_idx < sw_days or sw_days < 2:
         return None
 
     # 횡보 구간: last_idx - sw_days + 1 ~ last_idx (포함)
