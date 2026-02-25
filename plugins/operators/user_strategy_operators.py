@@ -105,7 +105,20 @@ class UserStrategyOperator(BaseOperator):
                 should_issue_token = account_type in ('PAPER', 'REAL') and not self.is_mock
 
                 if should_issue_token:
-                    # 항상 새 토큰 발급 (DAG가 토큰 발급의 주체)
+                    # 기존 토큰 유효성 체크 (kis_token_expired_at이 오늘 날짜면 유효 = NXT가 이미 발급함)
+                    existing_expired_at = s.get('kis_token_expired_at')
+                    token_still_valid = (
+                        existing_expired_at is not None
+                        and existing_expired_at.date() == datetime.now().date()
+                    )
+
+                    if token_still_valid:
+                        print(f"      -> Token still valid for {s['nickname']} "
+                              f"(expires: {existing_expired_at}), skipping issuance")
+                        # user_accounts에 추가하지 않음 → Kafka 발행 대상에서 제외
+                        continue
+
+                    # 토큰이 없거나 만료 → 새로 발급
                     kis_client = KISAPIClient(s['app_key'], s['app_secret'])
                     expires_in, ws_token, access_token = kis_client.get_websocket_user_token()
 
