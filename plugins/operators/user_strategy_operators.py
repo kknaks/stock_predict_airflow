@@ -105,11 +105,11 @@ class UserStrategyOperator(BaseOperator):
                 should_issue_token = account_type in ('PAPER', 'REAL') and not self.is_mock
 
                 if should_issue_token:
-                    # 기존 토큰 유효성 체크 (kis_token_expired_at이 오늘 날짜면 유효 = NXT가 이미 발급함)
+                    # 기존 토큰 유효성 체크 (만료 시간이 아직 안 지났으면 유효 = NXT가 이미 발급함)
                     existing_expired_at = s.get('kis_token_expired_at')
                     token_still_valid = (
                         existing_expired_at is not None
-                        and existing_expired_at.date() == datetime.now().date()
+                        and existing_expired_at > datetime.now()
                     )
 
                     if token_still_valid:
